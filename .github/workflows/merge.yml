@@ -1,0 +1,84 @@
+name: Merge
+
+# Fires when a PR against main is closed, but the jobs below only actually
+# run if it was merged (not just closed) — see the `if` on the test job.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  test:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race
+
+  # Same cross-compiled matrix as the PR workflow (see its comment), plus a
+  # sha256 checksum file alongside each platform's binaries. `needs: test`
+  # means this — and its `if` above — is skipped automatically whenever the
+  # PR was closed without merging.
+  build:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    env:
+      CGO_ENABLED: 0
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, so `git describe` below is meaningful
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Determine version
+        id: version
+        run: |
+          echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+          DATE: ${{ steps.version.outputs.date }}
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          LDFLAGS="-X github.com/syringex/syringe/internal/cmd.version=${VERSION} -X github.com/syringex/syringe/internal/cmd.commit=${COMMIT} -X github.com/syringex/syringe/internal/cmd.date=${DATE}"
+          mkdir -p dist
+          go build -ldflags "${LDFLAGS}" -o "dist/inject${EXT}" ./cmd/inject
+          go build -o "dist/inject-provider-aws${EXT}" ./providers/aws/cmd/inject-provider-aws
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inject_${{ steps.version.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error

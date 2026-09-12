@@ -1,0 +1,76 @@
+name: PR
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race
+
+  # Cross-compiled on one Linux runner (CGO_ENABLED=0, pure Go deps) rather
+  # than run on native macOS/Windows runners — cheaper and faster, and
+  # produces the exact same binaries. Uploaded as build artifacts so anyone
+  # can download this PR's build and try it out before it merges.
+  build:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    env:
+      CGO_ENABLED: 0
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, so `git describe` below is meaningful
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Determine version
+        id: version
+        run: |
+          echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+          DATE: ${{ steps.version.outputs.date }}
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          LDFLAGS="-X github.com/syringex/syringe/internal/cmd.version=${VERSION} -X github.com/syringex/syringe/internal/cmd.commit=${COMMIT} -X github.com/syringex/syringe/internal/cmd.date=${DATE}"
+          mkdir -p dist
+          go build -ldflags "${LDFLAGS}" -o "dist/inject${EXT}" ./cmd/inject
+          go build -o "dist/inject-provider-aws${EXT}" ./providers/aws/cmd/inject-provider-aws
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inject_${{ steps.version.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error

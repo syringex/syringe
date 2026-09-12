@@ -10,20 +10,13 @@ PLAIN_VALUE=this-is-just-a-normal-value
 
 A value shaped like `tag:path` is treated as a reference to a secret manager; anything else is a plain literal, so existing `.env` files keep working unchanged.
 
-AWS Secrets Manager (and SSM Parameter Store) secrets are often stored as a single JSON object holding several key-value pairs (e.g. AWS's own RDS-managed secrets: `{"username":"...","password":"...","host":"..."}`). Append `#<key>` to select just one field instead of the whole JSON blob:
-
-```
-DB_USERNAME=aws-sm:prod/db/credentials#username
-DB_PASSWORD=aws-sm:prod/db/credentials#password
-```
-
-Omitting `#<key>` resolves the secret's raw value as before (the whole JSON string, if that's what's stored). `#` is never a legal character in an AWS secret or parameter name, so this is unambiguous.
+Each provider has its own README covering what's specific to it (supported tags, setup, required permissions, any extra reference syntax): [`providers/aws`](providers/aws/README.md).
 
 ## Status
 
-- **Providers implemented:** one AWS provider, covering both AWS Secrets Manager (`aws-sm`) and AWS SSM Parameter Store (`aws-ssm`) — installed, configured, and built once (see below). GCP Secret Manager and Azure Key Vault are recognized as known tags but have no provider yet — referencing them will tell you so.
+- **Providers implemented:** one AWS provider, covering both AWS Secrets Manager (`aws-sm`) and AWS SSM Parameter Store (`aws-ssm`) — installed, configured, and built once (see [`providers/aws/README.md`](providers/aws/README.md)). GCP Secret Manager and Azure Key Vault are recognized as known tags but have no provider yet — referencing them will tell you so.
 - **Provider installation:** `inject init` currently builds provider binaries from this monorepo's source (`go build`) into a project-local `.syringe/` directory. Real downloadable, checksum-verified release artifacts (so `inject init` needs no local Go toolchain or monorepo checkout) are prepared (`.goreleaser.yaml`) but not yet wired up or published — that's a known next step, not a bug.
-- **Distribution:** this repo has no git remote or tags yet. `.goreleaser.yaml` and `.github/workflows/ci.yml` are ready for when it does.
+- **Distribution:** `.goreleaser.yaml` is ready for a real tagged release (not yet wired to CI); `.github/workflows/pr.yml` and `.github/workflows/merge.yml` build a linux/darwin/windows × amd64/arm64 matrix as artifacts on every PR and merge to `main`.
 
 ## How it works
 

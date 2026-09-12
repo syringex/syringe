@@ -8,9 +8,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -41,11 +41,11 @@ jobs:
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history + tags, so `git describe` below is meaningful
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -69,7 +69,7 @@ jobs:
           go build -ldflags "${LDFLAGS}" -o "dist/inject${EXT}" ./cmd/inject
           go build -o "dist/inject-provider-aws${EXT}" ./providers/aws/cmd/inject-provider-aws
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: inject_${{ steps.version.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/*

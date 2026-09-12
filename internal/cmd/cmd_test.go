@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/syringex/syringe/internal/lockfile"
 )
 
 var (
@@ -336,6 +339,36 @@ func TestInitBuildsProviderEvenWhenConfiguringFailsNonInteractively(t *testing.T
 	}
 	if !strings.Contains(string(gitignore), ".syringe/") {
 		t.Errorf(".gitignore = %q, want it to contain .syringe/", gitignore)
+	}
+
+	// The lock file must be written even though configuring failed — the
+	// binary itself was built successfully and that's what it records.
+	lockData, err := os.ReadFile(filepath.Join(dir, lockfile.FileName))
+	if err != nil {
+		t.Fatalf("expected init to write %s despite the configure failure: %v", lockfile.FileName, err)
+	}
+	lf, err := lockfile.Load(filepath.Join(dir, lockfile.FileName))
+	if err != nil {
+		t.Fatalf("re-parsing %s: %v", lockfile.FileName, err)
+	}
+	entry, ok := lf.Providers["aws"]
+	if !ok {
+		t.Fatalf("%s has no aws entry: %s", lockfile.FileName, lockData)
+	}
+	if entry.Version == "" {
+		t.Error("aws entry has no version")
+	}
+	platform := runtime.GOOS + "_" + runtime.GOARCH
+	digest, ok := entry.Platforms[platform]
+	if !ok {
+		t.Fatalf("aws entry has no %q platform: %+v", platform, entry.Platforms)
+	}
+	wantDigest, err := lockfile.DigestFile(binPath)
+	if err != nil {
+		t.Fatalf("digesting the installed binary: %v", err)
+	}
+	if digest.Digest != wantDigest {
+		t.Errorf("recorded digest = %q, want %q (the actual installed binary's digest)", digest.Digest, wantDigest)
 	}
 
 	// A second run without --force should skip rebuilding (binary already

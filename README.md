@@ -15,7 +15,7 @@ Each provider has its own README covering what's specific to it (supported tags,
 ## Status
 
 - **Providers implemented:** one AWS provider, covering both AWS Secrets Manager (`aws-sm`) and AWS SSM Parameter Store (`aws-ssm`) — installed, configured, and built once (see [`providers/aws/README.md`](providers/aws/README.md)). GCP Secret Manager and Azure Key Vault are recognized as known tags but have no provider yet — referencing them will tell you so.
-- **Provider installation:** `inject init` currently builds provider binaries from this monorepo's source (`go build`) into a project-local `.syringe/` directory. Real downloadable, checksum-verified release artifacts (so `inject init` needs no local Go toolchain or monorepo checkout) are prepared (`.goreleaser.yaml`) but not yet wired up or published — that's a known next step, not a bug.
+- **Provider installation:** `inject init` currently builds provider binaries from this monorepo's source (`go build`) into a project-local `.syringe/` directory, using [`providers/manifest.json`](providers/manifest.json) to know what to build and at what version. Real downloadable, checksum-verified release artifacts (so `inject init` needs no local Go toolchain or monorepo checkout) are prepared (`.goreleaser.yaml`) but not yet wired up or published — that's a known next step, not a bug.
 - **Distribution:** `.goreleaser.yaml` is ready for a real tagged release (not yet wired to CI); `.github/workflows/pr.yml` and `.github/workflows/merge.yml` build a linux/darwin/windows × amd64/arm64 matrix as artifacts on every PR and merge to `main`.
 
 ## How it works
@@ -34,6 +34,42 @@ Providers live in a project-local `.syringe/` directory (next to your `.env`), o
 ```
 
 `inject init` builds/configures this once even if your `.env` references both `aws-sm:` and `aws-ssm:`. This tag→provider grouping is an implementation detail of the AWS provider specifically — a third-party provider author is free to have a 1:1 tag↔binary mapping instead, which is the default assumption unless tags genuinely share configuration like AWS's do.
+
+### The provider manifest and `syringe.lock`
+
+[`providers/manifest.json`](providers/manifest.json) is the single source of truth for which providers exist — their identity, the reference tags they serve, their own version (independent of `inject` core's version), and the Go package that builds them:
+
+```json
+{
+  "providers": {
+    "aws": {
+      "version": "0.1.0",
+      "tags": ["aws-sm", "aws-ssm"],
+      "package": "github.com/syringex/syringe/providers/aws/cmd/inject-provider-aws"
+    }
+  }
+}
+```
+
+`inject` embeds this file at build time; CI reads it directly with `jq`. Adding a new provider means adding one entry here — `inject init`, the tag registry, and CI's build matrix all pick it up with no other code changes.
+
+Every time `inject init` (re)builds or confirms a provider, it records the provider's manifest version and a sha256 digest of the exact installed binary in `syringe.lock`, at the project root:
+
+```json
+{
+  "lockfile_version": 1,
+  "providers": {
+    "aws": {
+      "version": "0.1.0",
+      "platforms": {
+        "darwin_arm64": { "digest": "sha256:..." }
+      }
+    }
+  }
+}
+```
+
+Unlike `.syringe/`, **`syringe.lock` is meant to be committed** — like `package-lock.json` or `.terraform.lock.hcl`, it's how a team gets reproducible, verifiable provider installs rather than "whatever `go build` happened to produce on someone's machine." It's written/updated only by `inject init` today; nothing yet re-verifies an installed binary against it before use.
 
 ## Building
 

@@ -44,6 +44,14 @@ const (
 	tagParameterStore = "aws-ssm"
 )
 
+// version is this provider's own version (independent of inject core's),
+// set at build time via -ldflags -X from providers/manifest.json's
+// "version" field for the "aws" entry (see internal/cmd/init.go and the CI
+// workflows). It's embedded purely for forensic/debugging purposes (e.g.
+// visible via `strings`) — syringe.lock is what actually records which
+// version was installed, verified independently via a digest.
+var version = "dev"
+
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "init" {
 		env, errPayload := runInit(context.Background(), os.Stdin, os.Stderr, term.IsTerminal(int(os.Stdin.Fd())))

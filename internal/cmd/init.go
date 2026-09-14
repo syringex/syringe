@@ -232,7 +232,7 @@ func ensureGitignored(dir string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	for _, line := range strings.Split(string(existing), "\n") {
+	for line := range strings.SplitSeq(string(existing), "\n") {
 		trimmed := strings.TrimSuffix(strings.TrimSpace(line), "/")
 		if trimmed == entry {
 			return nil

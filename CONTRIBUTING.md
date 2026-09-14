@@ -21,16 +21,10 @@ A provider is a standalone executable that speaks the wire protocol in
    This is the only place `inject init`, the registry, and CI learn about a
    provider — no other code changes are needed to make it buildable and
    installable.
-3. Add a release config, `.goreleaser.<name>.yaml`, copied from
-   `.goreleaser.aws.yaml` and adjusted for the new provider's name/package
-   path. There's no goreleaser feature to scope a config to one tag
-   namespace in a monorepo without GoReleaser Pro, so every filename
-   template in it must read `{{ .Env.PROVIDER_VERSION }}` instead of
-   `{{ .Version }}` — `.github/workflows/release-provider.yml` computes
-   that (the tag with `<name>/v` stripped) and pins
-   `GORELEASER_CURRENT_TAG` before invoking goreleaser, which is what
-   actually keeps this provider's release train independent of `inject`
-   core's tags and every other provider's.
+3. That's it for release wiring — `.github/workflows/release-provider.yml`
+   reads a provider's package path straight out of `providers/manifest.json`
+   generically, so there's no per-provider release config to add or
+   maintain.
 4. Add a `providers/<name>/README.md` documenting that provider's specific
    setup (what `init` prompts for, required IAM/API permissions, any
    reference-syntax extensions like AWS's `#key` JSON selection).
@@ -48,7 +42,8 @@ release. `inject` can be at `v0.1.2` while `aws` is at `aws/v0.1.1` and a
 future `gcp` provider is at `gcp/v0.1.0`; nothing ties these together.
 
 Releasing is entirely automatic once a version bump reaches `main` — there
-is no manual tagging step and no local `goreleaser` run:
+is no manual tagging step, and no goreleaser or any other release tool to
+install:
 
 1. Whenever you change a provider's code, bump that provider's `version`
    field in `providers/manifest.json` in the same PR. This is the release
@@ -60,10 +55,10 @@ is no manual tagging step and no local `goreleaser` run:
    checks whether a `<name>/v<version>` tag already exists for the
    manifest's current version; if not, it creates and pushes that tag.
 4. Pushing that tag triggers `.github/workflows/release-provider.yml`, which
-   runs `goreleaser release --clean -f .goreleaser.<name>.yaml` (goreleaser
-   itself is installed on the fly in that job — nothing to install locally)
-   and publishes a GitHub Release named `<name>/v<new-version>` with the
-   provider's binaries, archives, and a `checksums.txt`.
+   cross-compiles that provider for every supported platform, archives and
+   checksums the result, and publishes a GitHub Release named
+   `<name>/v<new-version>` with the provider's binaries, archives, and a
+   `checksums.txt`.
 
 `inject init` on a real distributed binary resolves this exact tag: it
 fetches that release's `checksums.txt`, verifies the downloaded archive's

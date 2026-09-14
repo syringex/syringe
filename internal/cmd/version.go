@@ -7,9 +7,9 @@ import (
 )
 
 // version, commit, and date are set at build time via -ldflags -X (see the
-// Makefile for local builds, .goreleaser.yaml for tagged releases, and the
-// CI workflows for PR/merge builds). Left at their zero-value defaults,
-// they identify an ad hoc local build.
+// Makefile for local builds, .github/workflows/release-inject.yml for
+// tagged releases, and pr.yml/merge.yml for PR/merge builds). Left at
+// their zero-value defaults, they identify an ad hoc local build.
 var (
 	version = "dev"
 	commit  = "unknown"

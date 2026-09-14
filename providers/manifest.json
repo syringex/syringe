@@ -1,7 +1,7 @@
 {
   "providers": {
     "aws": {
-      "version": "0.1.0",
+      "version": "0.1.1",
       "tags": ["aws-sm", "aws-ssm"],
       "package": "github.com/syringex/syringe/providers/aws/cmd/inject-provider-aws"
     }

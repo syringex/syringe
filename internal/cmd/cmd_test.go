@@ -479,9 +479,10 @@ func TestInitDownloadsProviderWhenNoModuleDir(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
-	archiveFilename, archiveData, checksums, script := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
+	wantVersion := providerVersions["aws"]
+	archiveFilename, archiveData, checksums, script := buildFakeReleaseArchive(t, "aws", wantVersion, runtime.GOOS, runtime.GOARCH)
 
-	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	srv := fakeReleaseServer("aws/v"+wantVersion, archiveFilename, archiveData, checksums)
 	defer srv.Close()
 	restore := providerdownload.SetBaseURLForTesting(srv.URL)
 	t.Cleanup(restore)
@@ -490,7 +491,7 @@ func TestInitDownloadsProviderWhenNoModuleDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init returned error: %v\nstdout: %s", err, stdout)
 	}
-	if !strings.Contains(stdout, "downloading version 0.1.0") {
+	if !strings.Contains(stdout, "downloading version "+wantVersion) {
 		t.Errorf("stdout = %q, want it to mention downloading", stdout)
 	}
 
@@ -508,8 +509,8 @@ func TestInitDownloadsProviderWhenNoModuleDir(t *testing.T) {
 		t.Fatalf("loading %s: %v", lockfile.FileName, err)
 	}
 	entry, ok := lf.Providers["aws"]
-	if !ok || entry.Version != "0.1.0" {
-		t.Errorf("lock entry = %+v, want version 0.1.0", entry)
+	if !ok || entry.Version != wantVersion {
+		t.Errorf("lock entry = %+v, want version %s", entry, wantVersion)
 	}
 	wantDigest, err := lockfile.DigestFile(binPath)
 	if err != nil {
@@ -537,13 +538,19 @@ func TestInitRespectsExistingLockPinOverManifestVersion(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
+	// 0.0.9 only needs to differ from whatever providers/manifest.json
+	// currently says for "aws" — it's never asserted against that value,
+	// only against the pin itself, so a future manifest version bump can't
+	// make this coincidentally match and silently stop testing anything.
+	if providerVersions["aws"] == "0.0.9" {
+		t.Fatal("test fixture pin 0.0.9 collides with the manifest's current aws version — pick a different pin")
+	}
 	archiveFilename, archiveData, checksums, scriptContent := buildFakeReleaseArchive(t, "aws", "0.0.9", runtime.GOOS, runtime.GOARCH)
 
-	// Pin to 0.0.9 — deliberately different from the manifest's current
-	// "0.1.0" — before init ever runs, with the digest the download below
-	// will actually produce (a real pin, not a placeholder, now that init
-	// verifies a downloaded binary's digest against an existing pin for the
-	// same version).
+	// Pin to 0.0.9 before init ever runs, with the digest the download
+	// below will actually produce (a real pin, not a placeholder, now that
+	// init verifies a downloaded binary's digest against an existing pin
+	// for the same version).
 	sum := sha256.Sum256([]byte(scriptContent))
 	pinnedDigest := "sha256:" + hex.EncodeToString(sum[:])
 	var lf lockfile.Lockfile
@@ -562,7 +569,7 @@ func TestInitRespectsExistingLockPinOverManifestVersion(t *testing.T) {
 		t.Fatalf("init returned error: %v\nstdout: %s", err, stdout)
 	}
 	if !strings.Contains(stdout, "downloading version 0.0.9") {
-		t.Errorf("stdout = %q, want it to download the pinned 0.0.9, not the manifest's current 0.1.0", stdout)
+		t.Errorf("stdout = %q, want it to download the pinned 0.0.9, not the manifest's current version", stdout)
 	}
 
 	reloaded, err := lockfile.Load(lockfile.FileName)
@@ -584,16 +591,20 @@ func TestInitForceIgnoresLockPinAndUsesManifestVersion(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
+	if providerVersions["aws"] == "0.0.9" {
+		t.Fatal("test fixture pin 0.0.9 collides with the manifest's current aws version — pick a different pin")
+	}
 	var lf lockfile.Lockfile
 	lf.SetPlatform("aws", "0.0.9", runtime.GOOS+"_"+runtime.GOARCH, "sha256:placeholder")
 	if err := lf.Save(lockfile.FileName); err != nil {
 		t.Fatal(err)
 	}
 
-	// Only the manifest's current version (0.1.0) is actually served —
-	// if --force incorrectly still targeted the 0.0.9 pin, this would 404.
-	archiveFilename, archiveData, checksums, _ := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
-	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	// Only the manifest's current version is actually served — if --force
+	// incorrectly still targeted the 0.0.9 pin, this would 404.
+	wantVersion := providerVersions["aws"]
+	archiveFilename, archiveData, checksums, _ := buildFakeReleaseArchive(t, "aws", wantVersion, runtime.GOOS, runtime.GOARCH)
+	srv := fakeReleaseServer("aws/v"+wantVersion, archiveFilename, archiveData, checksums)
 	defer srv.Close()
 	restore := providerdownload.SetBaseURLForTesting(srv.URL)
 	t.Cleanup(restore)
@@ -602,8 +613,8 @@ func TestInitForceIgnoresLockPinAndUsesManifestVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init --force returned error: %v\nstdout: %s", err, stdout)
 	}
-	if !strings.Contains(stdout, "downloading version 0.1.0") {
-		t.Errorf("stdout = %q, want --force to re-resolve to the manifest's current 0.1.0", stdout)
+	if !strings.Contains(stdout, "downloading version "+wantVersion) {
+		t.Errorf("stdout = %q, want --force to re-resolve to the manifest's current version", stdout)
 	}
 }
 
@@ -621,14 +632,15 @@ func TestInitDigestMismatchAgainstLockFailsWithoutForce(t *testing.T) {
 
 	// Same version as what's about to be "downloaded", but a digest that
 	// cannot possibly match the real archive's extracted binary.
+	wantVersion := providerVersions["aws"]
 	var lf lockfile.Lockfile
-	lf.SetPlatform("aws", "0.1.0", runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
+	lf.SetPlatform("aws", wantVersion, runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
 	if err := lf.Save(lockfile.FileName); err != nil {
 		t.Fatal(err)
 	}
 
-	archiveFilename, archiveData, checksums, _ := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
-	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	archiveFilename, archiveData, checksums, _ := buildFakeReleaseArchive(t, "aws", wantVersion, runtime.GOOS, runtime.GOARCH)
+	srv := fakeReleaseServer("aws/v"+wantVersion, archiveFilename, archiveData, checksums)
 	defer srv.Close()
 	restore := providerdownload.SetBaseURLForTesting(srv.URL)
 	t.Cleanup(restore)
@@ -658,14 +670,15 @@ func TestInitForceOverridesDigestMismatch(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
+	wantVersion := providerVersions["aws"]
 	var lf lockfile.Lockfile
-	lf.SetPlatform("aws", "0.1.0", runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
+	lf.SetPlatform("aws", wantVersion, runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
 	if err := lf.Save(lockfile.FileName); err != nil {
 		t.Fatal(err)
 	}
 
-	archiveFilename, archiveData, checksums, scriptContent := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
-	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	archiveFilename, archiveData, checksums, scriptContent := buildFakeReleaseArchive(t, "aws", wantVersion, runtime.GOOS, runtime.GOARCH)
+	srv := fakeReleaseServer("aws/v"+wantVersion, archiveFilename, archiveData, checksums)
 	defer srv.Close()
 	restore := providerdownload.SetBaseURLForTesting(srv.URL)
 	t.Cleanup(restore)

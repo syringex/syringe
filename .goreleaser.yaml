@@ -39,7 +39,7 @@ checksum:
   name_template: "checksums.txt"
 
 release:
-  # No git remote or tags exist yet — this config is ready for `goreleaser
-  # release` once the repo is pushed and a version tag is cut; it is not run
-  # by anything automatically.
-  draft: true
+  # Runs via .github/workflows/release-inject.yml whenever a v<version> tag
+  # is pushed (inject core's own tag scheme — unprefixed, unlike a
+  # provider's <name>/v<version>, so no monorepo-style version stripping is
+  # needed here).

@@ -1,0 +1,39 @@
+name: Release inject
+
+# inject core's own release train — separate from a provider's (see
+# release-provider.yml). Triggered by pushing a plain v<version> tag
+# (unprefixed, unlike a provider's <name>/v<version>), which a human
+# creates and pushes directly; there's no auto-tagging step for inject
+# core the way providers/manifest.json drives one for providers, since
+# there's no equivalent single source-of-truth file to watch for a version
+# bump.
+on:
+  push:
+    tags: ['v[0-9]*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # goreleaser needs this to create the GitHub Release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history + tags, goreleaser needs both
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean -f .goreleaser.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pins which tag goreleaser treats as "the" release tag, same
+          # defensive reason as release-provider.yml: without it, goreleaser's
+          # own tag auto-detection could land on a provider's <name>/v<version>
+          # tag instead of this one if both ever point at/near the same commit.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}

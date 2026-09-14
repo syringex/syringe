@@ -23,13 +23,22 @@ jobs:
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)
 
+          # providers/manifest.json may not exist at all yet in the base
+          # commit (e.g. the PR that first introduces it) — treat that the
+          # same as "no providers released from base", not a hard failure.
+          if git cat-file -e "$BASE_SHA:providers/manifest.json" 2>/dev/null; then
+            BASE_MANIFEST=$(git show "$BASE_SHA:providers/manifest.json")
+          else
+            BASE_MANIFEST='{"providers":{}}'
+          fi
+
           FAILED=0
           for name in $(jq -r '.providers | keys[]' providers/manifest.json); do
             if ! grep -q "^providers/${name}/" <<< "$CHANGED_FILES"; then
               continue
             fi
 
-            BASE_VERSION=$(git show "$BASE_SHA:providers/manifest.json" | jq -r --arg n "$name" '.providers[$n].version // empty')
+            BASE_VERSION=$(jq -r --arg n "$name" '.providers[$n].version // empty' <<< "$BASE_MANIFEST")
             HEAD_VERSION=$(jq -r --arg n "$name" '.providers[$n].version' providers/manifest.json)
 
             if [ -z "$BASE_VERSION" ]; then

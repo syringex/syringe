@@ -5,7 +5,6 @@ name: Release provider
 # glob matches that shape but not inject core's own v<version> tags (which
 # have no "/").
 #
-# Hand-rolled (no goreleaser) — see release-inject.yml's header for why.
 # Works for any provider declared in providers/manifest.json generically:
 # adding a provider means adding a manifest entry, nothing here.
 #

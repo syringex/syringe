@@ -7,13 +7,6 @@ name: Release inject
 # core the way providers/manifest.json drives one for providers, since
 # there's no equivalent single source-of-truth file to watch for a version
 # bump.
-#
-# Hand-rolled (no goreleaser): the only things a release needs beyond what
-# pr.yml/merge.yml already hand-roll for the cross-compile loop are
-# archiving, checksumming, and creating the GitHub Release -- a few lines
-# of shell, not worth a dependency that has twice turned out to gate real
-# features (a monorepo tag-prefix feature, then macOS notarization) behind
-# a paid Pro tier we don't have.
 on:
   push:
     tags: ['v[0-9]*']

@@ -42,8 +42,7 @@ release. `inject` can be at `v0.1.2` while `aws` is at `aws/v0.1.1` and a
 future `gcp` provider is at `gcp/v0.1.0`; nothing ties these together.
 
 Releasing is entirely automatic once a version bump reaches `main` — there
-is no manual tagging step, and no goreleaser or any other release tool to
-install:
+is no manual tagging step and nothing to install locally:
 
 1. Whenever you change a provider's code, bump that provider's `version`
    field in `providers/manifest.json` in the same PR. This is the release

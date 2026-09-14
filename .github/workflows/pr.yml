@@ -5,6 +5,45 @@ on:
     branches: [main]
 
 jobs:
+  # A provider's version in providers/manifest.json is the sole release
+  # trigger (see .github/workflows/tag-provider-releases.yml and
+  # CONTRIBUTING.md) — changing a provider's code without bumping its
+  # version would silently merge with no release ever happening for that
+  # change. This job catches that before merge.
+  enforce-provider-version-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # need the PR's base commit to diff against
+
+      - name: Require a manifest version bump for any changed provider
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)
+
+          FAILED=0
+          for name in $(jq -r '.providers | keys[]' providers/manifest.json); do
+            if ! grep -q "^providers/${name}/" <<< "$CHANGED_FILES"; then
+              continue
+            fi
+
+            BASE_VERSION=$(git show "$BASE_SHA:providers/manifest.json" | jq -r --arg n "$name" '.providers[$n].version // empty')
+            HEAD_VERSION=$(jq -r --arg n "$name" '.providers[$n].version' providers/manifest.json)
+
+            if [ -z "$BASE_VERSION" ]; then
+              echo "${name}: new provider, no version-bump check needed"
+            elif [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
+              echo "::error::providers/${name}/** changed but providers.${name}.version in providers/manifest.json is still ${HEAD_VERSION} — bump it so this change actually gets released (see CONTRIBUTING.md)"
+              FAILED=1
+            else
+              echo "${name}: version bumped ${BASE_VERSION} -> ${HEAD_VERSION}, ok"
+            fi
+          done
+
+          exit "$FAILED"
+
   test:
     runs-on: ubuntu-latest
     steps:

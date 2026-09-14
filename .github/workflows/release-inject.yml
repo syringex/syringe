@@ -15,25 +15,58 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # goreleaser needs this to create the GitHub Release
+      contents: write # to create the GitHub Release
+    env:
+      CGO_ENABLED: 0
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # full history + tags, goreleaser needs both
+          fetch-depth: 0 # full history + tags, so version/commit below are meaningful
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean -f .goreleaser.yaml
+      - name: Build, archive, and checksum every platform
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          mkdir -p dist
+          for goos in linux darwin windows; do
+            for goarch in amd64 arm64; do
+              EXT=""
+              FORMAT="tar.gz"
+              if [ "$goos" = "windows" ]; then EXT=".exe"; FORMAT="zip"; fi
+
+              workdir="$(mktemp -d)"
+              GOOS="$goos" GOARCH="$goarch" go build \
+                -ldflags "-X github.com/syringex/syringe/internal/cmd.version=${VERSION} -X github.com/syringex/syringe/internal/cmd.commit=${COMMIT} -X github.com/syringex/syringe/internal/cmd.date=${DATE}" \
+                -o "${workdir}/inject${EXT}" ./cmd/inject
+
+              name="inject_${VERSION}_${goos}_${goarch}"
+              if [ "$FORMAT" = "zip" ]; then
+                (cd "$workdir" && zip -q "${name}.zip" "inject${EXT}")
+                mv "${workdir}/${name}.zip" "dist/"
+              else
+                tar -C "$workdir" -czf "dist/${name}.tar.gz" "inject${EXT}"
+              fi
+              rm -rf "$workdir"
+            done
+          done
+
+          (cd dist && shasum -a 256 -- * > checksums.txt)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        id: build
+
+      - name: Publish GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pins which tag goreleaser treats as "the" release tag, same
-          # defensive reason as release-provider.yml: without it, goreleaser's
-          # own tag auto-detection could land on a provider's <name>/v<version>
-          # tag instead of this one if both ever point at/near the same commit.
-          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes

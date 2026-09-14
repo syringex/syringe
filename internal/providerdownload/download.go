@@ -60,8 +60,9 @@ func releaseAssetURL(tag, filename string) string {
 }
 
 // FetchChecksums downloads and parses a release's checksums.txt (the
-// standard `sha256sum`-style "<hex>  <filename>" format goreleaser
-// produces) into a filename -> lowercase hex digest map.
+// standard `sha256sum`-style "<hex>  <filename>" format
+// release-provider.yml produces) into a filename -> lowercase hex digest
+// map.
 func FetchChecksums(ctx context.Context, tag string) (map[string]string, error) {
 	body, err := get(ctx, releaseAssetURL(tag, "checksums.txt"))
 	if err != nil {
@@ -81,9 +82,9 @@ func FetchChecksums(ctx context.Context, tag string) (map[string]string, error) 
 
 // FindAsset picks the checksums.txt entry for providerName on the given
 // platform, matching by "_<goos>_<goarch>" appearing in the filename
-// rather than predicting goreleaser's exact naming — one source of truth
-// (the real, published checksums file) instead of two places that could
-// drift out of sync.
+// rather than predicting the exact archive naming a second time — one
+// source of truth (the real, published checksums file) instead of two
+// places that could drift out of sync.
 func FindAsset(checksums map[string]string, providerName, goos, goarch string) (filename, digest string, err error) {
 	prefix := "inject-provider-" + providerName + "_"
 	suffix := fmt.Sprintf("_%s_%s", goos, goarch)

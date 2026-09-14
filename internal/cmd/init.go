@@ -20,8 +20,8 @@ import (
 // moduleDir is the absolute path to this monorepo's source, baked into the
 // inject binary at build time via `-ldflags -X ...moduleDir=$(pwd)` (see
 // the Makefile). Its presence is what distinguishes a contributor's local
-// dev build from a real, distributed inject binary (built by CI/goreleaser
-// with no such path baked in):
+// dev build from a real, distributed inject binary (built by
+// release-inject.yml, with no such path baked in):
 //   - moduleDir != "": build providers from this monorepo's source, always
 //     at the manifest's current version, ignoring any syringe.lock pin — a
 //     contributor iterating on provider code should never be silently
@@ -232,7 +232,7 @@ func ensureGitignored(dir string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	for _, line := range strings.Split(string(existing), "\n") {
+	for line := range strings.SplitSeq(string(existing), "\n") {
 		trimmed := strings.TrimSuffix(strings.TrimSpace(line), "/")
 		if trimmed == entry {
 			return nil

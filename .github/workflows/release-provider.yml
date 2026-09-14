@@ -5,6 +5,9 @@ name: Release provider
 # glob matches that shape but not inject core's own v<version> tags (which
 # have no "/").
 #
+# Works for any provider declared in providers/manifest.json generically:
+# adding a provider means adding a manifest entry, nothing here.
+#
 # Two triggers, for two different tag-creation paths:
 #   - push: tags — a tag pushed by a real, human-authenticated git push
 #     (e.g. a manual re-release). GitHub Actions events fire normally for
@@ -28,59 +31,67 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # goreleaser needs this to create the GitHub Release
+      contents: write # to create the GitHub Release
+    env:
+      CGO_ENABLED: 0
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref_name }} # workflow_dispatch checks out the default branch otherwise
-          fetch-depth: 0 # full history + tags, goreleaser needs both
+          fetch-depth: 0 # full history + tags
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Determine provider name, version, and config from tag
-        id: provider
+      - name: Build, archive, and checksum every platform
         run: |
           set -euo pipefail
           TAG="${{ inputs.tag || github.ref_name }}"
           NAME="${TAG%%/*}"
-          CONFIG=".goreleaser.${NAME}.yaml"
-          if [ ! -f "$CONFIG" ]; then
-            echo "::error::no $CONFIG for provider '$NAME' (tag $TAG) — see CONTRIBUTING.md for adding a new provider's release config"
+          VERSION="${TAG#"${NAME}/v"}"
+
+          PKG=$(jq -r --arg n "$NAME" '.providers[$n].package // empty' providers/manifest.json)
+          if [ -z "$PKG" ]; then
+            echo "::error::no providers.${NAME} entry in providers/manifest.json for tag ${TAG}"
             exit 1
           fi
+
+          mkdir -p dist
+          for goos in linux darwin windows; do
+            for goarch in amd64 arm64; do
+              EXT=""
+              FORMAT="tar.gz"
+              if [ "$goos" = "windows" ]; then EXT=".exe"; FORMAT="zip"; fi
+
+              binname="inject-provider-${NAME}"
+              workdir="$(mktemp -d)"
+              GOOS="$goos" GOARCH="$goarch" go build \
+                -ldflags "-X ${PKG}.version=${VERSION}" \
+                -o "${workdir}/${binname}${EXT}" "$PKG"
+
+              archive="${binname}_v${VERSION}_${goos}_${goarch}"
+              if [ "$FORMAT" = "zip" ]; then
+                (cd "$workdir" && zip -q "${archive}.zip" "${binname}${EXT}")
+                mv "${workdir}/${archive}.zip" "dist/"
+              else
+                tar -C "$workdir" -czf "dist/${archive}.tar.gz" "${binname}${EXT}"
+              fi
+              rm -rf "$workdir"
+            done
+          done
+
+          (cd dist && shasum -a 256 -- * > checksums.txt)
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
-          echo "config=${CONFIG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        id: build
 
-          # goreleaser's own {{.Version}} is derived from the tag with only
-          # a single leading "v" stripped — for a slash-namespaced tag like
-          # "aws/v0.1.0" that leaves the "/" in place, which breaks any
-          # filename template that references it (this is what "GoReleaser
-          # Pro"'s monorepo/tag_prefix feature exists to handle; we don't
-          # have that, so .goreleaser.<name>.yaml uses .Env.PROVIDER_VERSION
-          # instead of .Version everywhere a filename is built).
-          echo "PROVIDER_VERSION=${TAG#"${NAME}/v"}" >> "$GITHUB_ENV"
-
-          # GORELEASER_CURRENT_TAG pins which tag goreleaser treats as "the"
-          # release tag — without it, goreleaser's own tag auto-detection
-          # can just as easily land on inject core's plain v<version> tag
-          # when both point at/near the same commit (the same ambiguity
-          # --match 'v[0-9]*' fixes for our own git describe calls).
-          echo "GORELEASER_CURRENT_TAG=${TAG}" >> "$GITHUB_ENV"
-
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: latest
-          # --skip=validate: goreleaser's validate pipe hard-fails release
-          # (non-snapshot) mode unless the current tag parses as bare
-          # semver on its own — "aws/v0.1.0" never will, by design (see
-          # above). It also covers the "git is dirty" check, which is moot
-          # in a fresh CI checkout. Verified locally with a real goreleaser
-          # binary that both checks are the only things --skip=validate
-          # disables and that the rest of the pipeline (build/archive/
-          # checksum) runs unaffected.
-          args: release --clean --skip=validate -f ${{ steps.provider.outputs.config }}
+      - name: Publish GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          gh release create "${TAG}" dist/* \
+            --title "${TAG}" \
+            --generate-notes

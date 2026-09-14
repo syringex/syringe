@@ -4,9 +4,25 @@ name: Release provider
 # namespace: <name>/v<version> (e.g. aws/v0.1.0) — see CONTRIBUTING.md. This
 # glob matches that shape but not inject core's own v<version> tags (which
 # have no "/").
+#
+# Two triggers, for two different tag-creation paths:
+#   - push: tags — a tag pushed by a real, human-authenticated git push
+#     (e.g. a manual re-release). GitHub Actions events fire normally for
+#     these.
+#   - workflow_dispatch: tag-provider-releases.yml creates and pushes a
+#     provider's tag using the default GITHUB_TOKEN, and GitHub deliberately
+#     does not fire push-triggered workflows for a GITHUB_TOKEN-authored
+#     push (an anti-recursion guard) — so that workflow explicitly
+#     dispatches this one instead, passing the tag it just created.
 on:
   push:
     tags: ['*/v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Provider tag to release, e.g. aws/v0.1.0"
+        required: true
+        type: string
 
 jobs:
   release:
@@ -16,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag || github.ref_name }} # workflow_dispatch checks out the default branch otherwise
           fetch-depth: 0 # full history + tags, goreleaser needs both
 
       - uses: actions/setup-go@v7
@@ -25,7 +42,7 @@ jobs:
       - name: Determine provider name from tag
         id: provider
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ inputs.tag || github.ref_name }}"
           NAME="${TAG%%/*}"
           CONFIG=".goreleaser.${NAME}.yaml"
           if [ ! -f "$CONFIG" ]; then

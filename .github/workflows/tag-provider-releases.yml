@@ -21,12 +21,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # to push the new tag(s)
+      actions: write # to dispatch release-provider.yml below
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # need full tag history to check what's already released
 
       - name: Tag any provider whose manifest version has no release tag yet
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           for name in $(jq -r '.providers | keys[]' providers/manifest.json); do
@@ -41,4 +44,11 @@ jobs:
             echo "${tag}: no release yet, tagging"
             git tag "${tag}"
             git push origin "${tag}"
+
+            # A tag pushed here with the default GITHUB_TOKEN does not
+            # itself trigger release-provider.yml's `push: tags` event —
+            # GitHub suppresses workflow triggers from GITHUB_TOKEN-authored
+            # pushes to prevent recursive runs. Dispatch it explicitly instead.
+            echo "${tag}: dispatching release-provider.yml"
+            gh workflow run release-provider.yml --ref main -f "tag=${tag}"
           done

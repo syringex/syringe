@@ -100,7 +100,12 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+          # --match restricts this to inject core's own v<version> tags —
+          # without it, git describe can just as easily resolve to a
+          # provider's <name>/v<version> tag when both point at (or near)
+          # the same commit, producing a "/"-containing version string that
+          # breaks the artifact name below.
+          echo "version=$(git describe --tags --always --dirty --match 'v[0-9]*')" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 

@@ -10,6 +10,12 @@ name: Release inject
 on:
   push:
     tags: ['v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v<version> tag to (re-)release, e.g. v0.2.1"
+        required: true
+        type: string
 
 jobs:
   release:
@@ -21,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag || github.ref_name }} # workflow_dispatch checks out the default branch otherwise
           fetch-depth: 0 # full history + tags, so version/commit below are meaningful
 
       - uses: actions/setup-go@v7
@@ -30,7 +37,7 @@ jobs:
       - name: Build, archive, and checksum every platform
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ inputs.tag || github.ref_name }}"
           VERSION="${TAG#v}"
           COMMIT="$(git rev-parse --short HEAD)"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -67,9 +74,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+          TAG="${{ inputs.tag || github.ref_name }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes
+          fi
 
       - name: Update syringex/homebrew-tap
         env:

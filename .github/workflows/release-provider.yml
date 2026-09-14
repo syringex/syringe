@@ -39,9 +39,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Determine provider name from tag
+      - name: Determine provider name, version, and config from tag
         id: provider
         run: |
+          set -euo pipefail
           TAG="${{ inputs.tag || github.ref_name }}"
           NAME="${TAG%%/*}"
           CONFIG=".goreleaser.${NAME}.yaml"
@@ -52,7 +53,23 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "config=${CONFIG}" >> "$GITHUB_OUTPUT"
 
-      - uses: goreleaser/goreleaser-action@v6
+          # goreleaser's own {{.Version}} is derived from the tag with only
+          # a single leading "v" stripped — for a slash-namespaced tag like
+          # "aws/v0.1.0" that leaves the "/" in place, which breaks any
+          # filename template that references it (this is what "GoReleaser
+          # Pro"'s monorepo/tag_prefix feature exists to handle; we don't
+          # have that, so .goreleaser.<name>.yaml uses .Env.PROVIDER_VERSION
+          # instead of .Version everywhere a filename is built).
+          echo "PROVIDER_VERSION=${TAG#"${NAME}/v"}" >> "$GITHUB_ENV"
+
+          # GORELEASER_CURRENT_TAG pins which tag goreleaser treats as "the"
+          # release tag — without it, goreleaser's own tag auto-detection
+          # can just as easily land on inject core's plain v<version> tag
+          # when both point at/near the same commit (the same ambiguity
+          # --match 'v[0-9]*' fixes for our own git describe calls).
+          echo "GORELEASER_CURRENT_TAG=${TAG}" >> "$GITHUB_ENV"
+
+      - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: latest

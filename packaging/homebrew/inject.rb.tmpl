@@ -1,0 +1,36 @@
+class Inject < Formula
+  desc "CLI that resolves secret references in .env-style files instead of storing plaintext secrets"
+  homepage "https://github.com/syringex/syringe"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/syringex/syringe/releases/download/v@VERSION@/inject_@VERSION@_darwin_arm64.tar.gz"
+      sha256 "@DARWIN_ARM64_SHA@"
+    end
+    on_intel do
+      url "https://github.com/syringex/syringe/releases/download/v@VERSION@/inject_@VERSION@_darwin_amd64.tar.gz"
+      sha256 "@DARWIN_AMD64_SHA@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/syringex/syringe/releases/download/v@VERSION@/inject_@VERSION@_linux_arm64.tar.gz"
+      sha256 "@LINUX_ARM64_SHA@"
+    end
+    on_intel do
+      url "https://github.com/syringex/syringe/releases/download/v@VERSION@/inject_@VERSION@_linux_amd64.tar.gz"
+      sha256 "@LINUX_AMD64_SHA@"
+    end
+  end
+
+  def install
+    bin.install "inject"
+  end
+
+  test do
+    assert_match "inject #{version}", shell_output("#{bin}/inject version")
+  end
+end

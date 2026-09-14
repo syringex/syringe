@@ -70,3 +70,37 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
+
+      - name: Update syringex/homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew tap update"
+            exit 0
+          fi
+
+          VERSION="${{ steps.build.outputs.version }}"
+          sha_for() { grep " $1\$" dist/checksums.txt | cut -d' ' -f1; }
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/syringex/homebrew-tap.git" tap
+
+          sed \
+            -e "s/@VERSION@/${VERSION}/g" \
+            -e "s/@DARWIN_ARM64_SHA@/$(sha_for "inject_${VERSION}_darwin_arm64.tar.gz")/" \
+            -e "s/@DARWIN_AMD64_SHA@/$(sha_for "inject_${VERSION}_darwin_amd64.tar.gz")/" \
+            -e "s/@LINUX_ARM64_SHA@/$(sha_for "inject_${VERSION}_linux_arm64.tar.gz")/" \
+            -e "s/@LINUX_AMD64_SHA@/$(sha_for "inject_${VERSION}_linux_amd64.tar.gz")/" \
+            packaging/homebrew/inject.rb.tmpl > tap/Formula/inject.rb
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/inject.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date"
+          else
+            git commit -m "inject ${VERSION}"
+            git push origin main
+          fi

@@ -1,11 +1,16 @@
 version: 2
 
-# Scopes this config to tags shaped "aws/vX.Y.Z" and strips that prefix
-# when computing {{.Version}}/{{.Tag}}, so this provider's release train is
-# entirely independent of inject core's own v<version> tags/releases —
-# see CONTRIBUTING.md and .github/workflows/release-provider.yml.
-monorepo:
-  tag_prefix: aws/
+# This provider's release train is entirely independent of inject core's
+# own v<version> tags/releases and of every other provider's — tags live
+# under aws/vX.Y.Z (see CONTRIBUTING.md). Scoping a goreleaser config to a
+# tag prefix and stripping it from {{.Version}} automatically is a
+# GoReleaser Pro feature (`monorepo:`); without Pro, .github/workflows/
+# release-provider.yml computes the prefix-stripped version itself and
+# passes it in as PROVIDER_VERSION, and every template below reads that
+# instead of {{.Version}} (which would still contain "aws/" and break
+# these filenames). It also pins GORELEASER_CURRENT_TAG so goreleaser
+# doesn't have to guess between this tag and inject core's, in case both
+# ever point at the same commit.
 
 before:
   hooks:
@@ -23,12 +28,12 @@ builds:
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags:
-      - -X github.com/syringex/syringe/providers/aws/cmd/inject-provider-aws.version={{.Version}}
+      - -X github.com/syringex/syringe/providers/aws/cmd/inject-provider-aws.version={{.Env.PROVIDER_VERSION}}
 
 archives:
   - id: inject-provider-aws
     ids: [inject-provider-aws]
-    name_template: "inject-provider-aws_v{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "inject-provider-aws_v{{ .Env.PROVIDER_VERSION }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
       - goos: windows
@@ -38,4 +43,4 @@ checksum:
   name_template: "checksums.txt"
 
 release:
-  name_template: "aws/v{{ .Version }}"
+  name_template: "aws/v{{ .Env.PROVIDER_VERSION }}"

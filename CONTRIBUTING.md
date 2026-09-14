@@ -23,8 +23,13 @@ A provider is a standalone executable that speaks the wire protocol in
    installable.
 3. Add a release config, `.goreleaser.<name>.yaml`, copied from
    `.goreleaser.aws.yaml` and adjusted for the new provider's name/package
-   path. It must set `monorepo.tag_prefix: <name>/` so its release train is
-   scoped to that provider's own tags and stays independent of both `inject`
+   path. There's no goreleaser feature to scope a config to one tag
+   namespace in a monorepo without GoReleaser Pro, so every filename
+   template in it must read `{{ .Env.PROVIDER_VERSION }}` instead of
+   `{{ .Version }}` — `.github/workflows/release-provider.yml` computes
+   that (the tag with `<name>/v` stripped) and pins
+   `GORELEASER_CURRENT_TAG` before invoking goreleaser, which is what
+   actually keeps this provider's release train independent of `inject`
    core's tags and every other provider's.
 4. Add a `providers/<name>/README.md` documenting that provider's specific
    setup (what `init` prompts for, required IAM/API permissions, any

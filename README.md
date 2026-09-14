@@ -15,7 +15,7 @@ Each provider has its own README covering what's specific to it (supported tags,
 ## Status
 
 - **Providers implemented:** one AWS provider, covering both AWS Secrets Manager (`aws-sm`) and AWS SSM Parameter Store (`aws-ssm`) — installed, configured, and built once (see [`providers/aws/README.md`](providers/aws/README.md)). GCP Secret Manager and Azure Key Vault are recognized as known tags but have no provider yet — referencing them will tell you so.
-- **Provider installation:** `inject init` currently builds provider binaries from this monorepo's source (`go build`) into a project-local `.syringe/` directory, using [`providers/manifest.json`](providers/manifest.json) to know what to build and at what version. Real downloadable, checksum-verified release artifacts (so `inject init` needs no local Go toolchain or monorepo checkout) are prepared (`.goreleaser.yaml`) but not yet wired up or published — that's a known next step, not a bug.
+- **Provider installation:** in a local monorepo checkout, `inject init` builds provider binaries from source (`go build`) into a project-local `.syringe/` directory, using [`providers/manifest.json`](providers/manifest.json) to know what to build and at what version. In a real, distributed `inject` binary, `init` instead downloads and checksum-verifies that provider's own released binary — see [CONTRIBUTING.md](CONTRIBUTING.md) for how a provider gets released, and `internal/providerdownload` for how a download is verified.
 - **Distribution:** `.goreleaser.yaml` is ready for a real tagged release (not yet wired to CI); `.github/workflows/pr.yml` and `.github/workflows/merge.yml` build a linux/darwin/windows × amd64/arm64 matrix as artifacts on every PR and merge to `main`.
 
 ## How it works

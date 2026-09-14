@@ -73,6 +73,14 @@ jobs:
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean -f ${{ steps.provider.outputs.config }}
+          # --skip=validate: goreleaser's validate pipe hard-fails release
+          # (non-snapshot) mode unless the current tag parses as bare
+          # semver on its own — "aws/v0.1.0" never will, by design (see
+          # above). It also covers the "git is dirty" check, which is moot
+          # in a fresh CI checkout. Verified locally with a real goreleaser
+          # binary that both checks are the only things --skip=validate
+          # disables and that the rest of the pipeline (build/archive/
+          # checksum) runs unaffected.
+          args: release --clean --skip=validate -f ${{ steps.provider.outputs.config }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

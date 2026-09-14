@@ -18,32 +18,18 @@ builds:
       - -X github.com/syringex/syringe/internal/cmd.date={{.Date}}
     # Deliberately no -X ...moduleDir ldflag here (unlike the local `make
     # build`): a released inject binary has no local monorepo to build
-    # providers from, so `inject init` correctly refuses until Phase 6 wires
-    # up downloading published provider binaries instead of `go build`.
+    # providers from, so `inject init` downloads a provider's own release
+    # instead — see .goreleaser.aws.yaml and internal/providerdownload.
 
-  # Covers both the aws-sm and aws-ssm reference tags — see the package doc
-  # in providers/aws: it's one provider identity (one profile/region config)
-  # serving two AWS services, not two separate providers.
-  - id: inject-provider-aws
-    main: ./providers/aws/cmd/inject-provider-aws
-    binary: inject-provider-aws
-    env:
-      - CGO_ENABLED=0
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
+# Providers are NOT built here: each has its own goreleaser config
+# (.goreleaser.<name>.yaml) and release train, tagged independently of
+# inject core (<name>/v<version> rather than v<version>) — see
+# .goreleaser.aws.yaml and .github/workflows/release-provider.yml.
 
 archives:
   - id: inject
     ids: [inject]
     name_template: "inject_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-
-  - id: inject-provider-aws
-    ids: [inject-provider-aws]
-    name_template: "inject-provider-aws_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
       - goos: windows

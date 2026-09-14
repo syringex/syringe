@@ -1,0 +1,41 @@
+version: 2
+
+# Scopes this config to tags shaped "aws/vX.Y.Z" and strips that prefix
+# when computing {{.Version}}/{{.Tag}}, so this provider's release train is
+# entirely independent of inject core's own v<version> tags/releases —
+# see CONTRIBUTING.md and .github/workflows/release-provider.yml.
+monorepo:
+  tag_prefix: aws/
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  # Covers both the aws-sm and aws-ssm reference tags — see the package doc
+  # in providers/aws: it's one provider identity (one profile/region
+  # config) serving two AWS services, not two separate providers.
+  - id: inject-provider-aws
+    main: ./providers/aws/cmd/inject-provider-aws
+    binary: inject-provider-aws
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -X github.com/syringex/syringe/providers/aws/cmd/inject-provider-aws.version={{.Version}}
+
+archives:
+  - id: inject-provider-aws
+    ids: [inject-provider-aws]
+    name_template: "inject-provider-aws_v{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  name_template: "aws/v{{ .Version }}"

@@ -1,13 +1,24 @@
 package cmd
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/syringex/syringe/internal/lockfile"
+	"github.com/syringex/syringe/internal/providerdownload"
 )
 
 var (
@@ -338,6 +349,36 @@ func TestInitBuildsProviderEvenWhenConfiguringFailsNonInteractively(t *testing.T
 		t.Errorf(".gitignore = %q, want it to contain .syringe/", gitignore)
 	}
 
+	// The lock file must be written even though configuring failed — the
+	// binary itself was built successfully and that's what it records.
+	lockData, err := os.ReadFile(filepath.Join(dir, lockfile.FileName))
+	if err != nil {
+		t.Fatalf("expected init to write %s despite the configure failure: %v", lockfile.FileName, err)
+	}
+	lf, err := lockfile.Load(filepath.Join(dir, lockfile.FileName))
+	if err != nil {
+		t.Fatalf("re-parsing %s: %v", lockfile.FileName, err)
+	}
+	entry, ok := lf.Providers["aws"]
+	if !ok {
+		t.Fatalf("%s has no aws entry: %s", lockfile.FileName, lockData)
+	}
+	if entry.Version == "" {
+		t.Error("aws entry has no version")
+	}
+	platform := runtime.GOOS + "_" + runtime.GOARCH
+	digest, ok := entry.Platforms[platform]
+	if !ok {
+		t.Fatalf("aws entry has no %q platform: %+v", platform, entry.Platforms)
+	}
+	wantDigest, err := lockfile.DigestFile(binPath)
+	if err != nil {
+		t.Fatalf("digesting the installed binary: %v", err)
+	}
+	if digest.Digest != wantDigest {
+		t.Errorf("recorded digest = %q, want %q (the actual installed binary's digest)", digest.Digest, wantDigest)
+	}
+
 	// A second run without --force should skip rebuilding (binary already
 	// installed) but retry configuring, since config.toml still doesn't exist.
 	stdout, _, err = runCLI("init")
@@ -384,7 +425,53 @@ func TestInitBuildsAwsProviderOnceForBothTags(t *testing.T) {
 	}
 }
 
-func TestInitWithoutModuleDirErrorsClearly(t *testing.T) {
+// buildFakeReleaseArchive packages a minimal shell-script stand-in
+// provider (speaks just enough of the protocol for `init` to succeed
+// unconditionally) into a .tar.gz, alongside a matching checksums.txt for
+// the filename a real release asset for (goos, goarch) would use.
+func buildFakeReleaseArchive(t *testing.T, providerName, version, goos, goarch string) (archiveFilename string, archiveData []byte, checksumsContent string, scriptContent string) {
+	t.Helper()
+	script := "#!/bin/sh\necho '{\"env\":{}}'\n"
+
+	var tarBuf bytes.Buffer
+	gz := gzip.NewWriter(&tarBuf)
+	tw := tar.NewWriter(gz)
+	binName := "inject-provider-" + providerName
+	if err := tw.WriteHeader(&tar.Header{Name: binName, Size: int64(len(script)), Mode: 0o755}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(script)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archiveData = tarBuf.Bytes()
+
+	sum := sha256.Sum256(archiveData)
+	archiveFilename = fmt.Sprintf("inject-provider-%s_v%s_%s_%s.tar.gz", providerName, version, goos, goarch)
+	checksumsContent = fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), archiveFilename)
+	return archiveFilename, archiveData, checksumsContent, script
+}
+
+// fakeReleaseServer serves checksums.txt and one archive at the same
+// paths a real GitHub Release would use.
+func fakeReleaseServer(tag, archiveFilename string, archiveData []byte, checksums string) *httptest.Server {
+	mux := http.NewServeMux()
+	base := "/syringex/syringe/releases/download/" + tag + "/"
+	mux.HandleFunc(base+"checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, checksums)
+	})
+	mux.HandleFunc(base+archiveFilename, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveData)
+	})
+	return httptest.NewServer(mux)
+}
+
+func TestInitDownloadsProviderWhenNoModuleDir(t *testing.T) {
 	dir := chdirTemp(t)
 	writeEnvFile(t, dir, "DB_PASSWORD=aws-sm:prod/db/password\n")
 
@@ -392,11 +479,232 @@ func TestInitWithoutModuleDirErrorsClearly(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
+	archiveFilename, archiveData, checksums, script := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
+
+	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	defer srv.Close()
+	restore := providerdownload.SetBaseURLForTesting(srv.URL)
+	t.Cleanup(restore)
+
+	stdout, _, err := runCLI("init")
+	if err != nil {
+		t.Fatalf("init returned error: %v\nstdout: %s", err, stdout)
+	}
+	if !strings.Contains(stdout, "downloading version 0.1.0") {
+		t.Errorf("stdout = %q, want it to mention downloading", stdout)
+	}
+
+	binPath := filepath.Join(dir, ".syringe", "providers", "aws", "inject-provider-aws")
+	got, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatalf("expected the downloaded binary to be installed: %v", err)
+	}
+	if string(got) != script {
+		t.Errorf("installed binary content = %q, want %q", got, script)
+	}
+
+	lf, err := lockfile.Load(filepath.Join(dir, lockfile.FileName))
+	if err != nil {
+		t.Fatalf("loading %s: %v", lockfile.FileName, err)
+	}
+	entry, ok := lf.Providers["aws"]
+	if !ok || entry.Version != "0.1.0" {
+		t.Errorf("lock entry = %+v, want version 0.1.0", entry)
+	}
+	wantDigest, err := lockfile.DigestFile(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	platform := runtime.GOOS + "_" + runtime.GOARCH
+	if entry.Platforms[platform].Digest != wantDigest {
+		t.Errorf("recorded digest = %q, want %q", entry.Platforms[platform].Digest, wantDigest)
+	}
+
+	// The fake binary speaks just enough protocol for configure to succeed.
+	if _, statErr := os.Stat(filepath.Join(dir, ".syringe", "providers", "aws", "config.toml")); statErr != nil {
+		t.Errorf("expected configure to succeed against the fake downloaded binary: %v", statErr)
+	}
+}
+
+// The actual point of a lock file: a pre-existing syringe.lock pin must
+// win over the manifest's current version, so a checked-in lock keeps
+// installing the same version a team already agreed on.
+func TestInitRespectsExistingLockPinOverManifestVersion(t *testing.T) {
+	dir := chdirTemp(t)
+	writeEnvFile(t, dir, "DB_PASSWORD=aws-sm:prod/db/password\n")
+
+	origModuleDir := moduleDir
+	moduleDir = ""
+	t.Cleanup(func() { moduleDir = origModuleDir })
+
+	archiveFilename, archiveData, checksums, scriptContent := buildFakeReleaseArchive(t, "aws", "0.0.9", runtime.GOOS, runtime.GOARCH)
+
+	// Pin to 0.0.9 — deliberately different from the manifest's current
+	// "0.1.0" — before init ever runs, with the digest the download below
+	// will actually produce (a real pin, not a placeholder, now that init
+	// verifies a downloaded binary's digest against an existing pin for the
+	// same version).
+	sum := sha256.Sum256([]byte(scriptContent))
+	pinnedDigest := "sha256:" + hex.EncodeToString(sum[:])
+	var lf lockfile.Lockfile
+	lf.SetPlatform("aws", "0.0.9", runtime.GOOS+"_"+runtime.GOARCH, pinnedDigest)
+	if err := lf.Save(lockfile.FileName); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := fakeReleaseServer("aws/v0.0.9", archiveFilename, archiveData, checksums)
+	defer srv.Close()
+	restore := providerdownload.SetBaseURLForTesting(srv.URL)
+	t.Cleanup(restore)
+
+	stdout, _, err := runCLI("init")
+	if err != nil {
+		t.Fatalf("init returned error: %v\nstdout: %s", err, stdout)
+	}
+	if !strings.Contains(stdout, "downloading version 0.0.9") {
+		t.Errorf("stdout = %q, want it to download the pinned 0.0.9, not the manifest's current 0.1.0", stdout)
+	}
+
+	reloaded, err := lockfile.Load(lockfile.FileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Providers["aws"].Version != "0.0.9" {
+		t.Errorf("lock version after init = %q, want the pin (0.0.9) preserved", reloaded.Providers["aws"].Version)
+	}
+}
+
+// --force bypasses the pin and re-resolves against the manifest's current
+// version — the "upgrade" path.
+func TestInitForceIgnoresLockPinAndUsesManifestVersion(t *testing.T) {
+	dir := chdirTemp(t)
+	writeEnvFile(t, dir, "DB_PASSWORD=aws-sm:prod/db/password\n")
+
+	origModuleDir := moduleDir
+	moduleDir = ""
+	t.Cleanup(func() { moduleDir = origModuleDir })
+
+	var lf lockfile.Lockfile
+	lf.SetPlatform("aws", "0.0.9", runtime.GOOS+"_"+runtime.GOARCH, "sha256:placeholder")
+	if err := lf.Save(lockfile.FileName); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the manifest's current version (0.1.0) is actually served —
+	// if --force incorrectly still targeted the 0.0.9 pin, this would 404.
+	archiveFilename, archiveData, checksums, _ := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
+	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	defer srv.Close()
+	restore := providerdownload.SetBaseURLForTesting(srv.URL)
+	t.Cleanup(restore)
+
+	stdout, _, err := runCLI("init", "--force")
+	if err != nil {
+		t.Fatalf("init --force returned error: %v\nstdout: %s", err, stdout)
+	}
+	if !strings.Contains(stdout, "downloading version 0.1.0") {
+		t.Errorf("stdout = %q, want --force to re-resolve to the manifest's current 0.1.0", stdout)
+	}
+}
+
+// The actual guarantee a lock file provides: reinstalling the *same*
+// pinned version must reproduce the *same* digest, or init refuses to
+// proceed — catching a release that was replaced/tampered with after
+// syringe.lock was committed, or a locally modified binary.
+func TestInitDigestMismatchAgainstLockFailsWithoutForce(t *testing.T) {
+	dir := chdirTemp(t)
+	writeEnvFile(t, dir, "DB_PASSWORD=aws-sm:prod/db/password\n")
+
+	origModuleDir := moduleDir
+	moduleDir = ""
+	t.Cleanup(func() { moduleDir = origModuleDir })
+
+	// Same version as what's about to be "downloaded", but a digest that
+	// cannot possibly match the real archive's extracted binary.
+	var lf lockfile.Lockfile
+	lf.SetPlatform("aws", "0.1.0", runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
+	if err := lf.Save(lockfile.FileName); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveFilename, archiveData, checksums, _ := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
+	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	defer srv.Close()
+	restore := providerdownload.SetBaseURLForTesting(srv.URL)
+	t.Cleanup(restore)
+
 	_, _, err := runCLI("init")
 	if err == nil {
-		t.Fatal("expected an error when moduleDir isn't baked in")
+		t.Fatal("expected an error on digest mismatch against the lock")
 	}
-	if !strings.Contains(err.Error(), "make build") {
-		t.Errorf("error = %v, want it to point at `make build`", err)
+	if !strings.Contains(err.Error(), "digest") || !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error = %v, want it to mention the digest mismatch and the --force escape hatch", err)
+	}
+
+	reloaded, err := lockfile.Load(lockfile.FileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Providers["aws"].Platforms[runtime.GOOS+"_"+runtime.GOARCH].Digest; got != "sha256:0000000000000000000000000000000000000000000000000000000000000" {
+		t.Errorf("lock digest after a failed init = %q, want it left untouched", got)
+	}
+}
+
+func TestInitForceOverridesDigestMismatch(t *testing.T) {
+	dir := chdirTemp(t)
+	writeEnvFile(t, dir, "DB_PASSWORD=aws-sm:prod/db/password\n")
+
+	origModuleDir := moduleDir
+	moduleDir = ""
+	t.Cleanup(func() { moduleDir = origModuleDir })
+
+	var lf lockfile.Lockfile
+	lf.SetPlatform("aws", "0.1.0", runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
+	if err := lf.Save(lockfile.FileName); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveFilename, archiveData, checksums, scriptContent := buildFakeReleaseArchive(t, "aws", "0.1.0", runtime.GOOS, runtime.GOARCH)
+	srv := fakeReleaseServer("aws/v0.1.0", archiveFilename, archiveData, checksums)
+	defer srv.Close()
+	restore := providerdownload.SetBaseURLForTesting(srv.URL)
+	t.Cleanup(restore)
+
+	if _, _, err := runCLI("init", "--force"); err != nil {
+		t.Fatalf("init --force returned error: %v", err)
+	}
+
+	sum := sha256.Sum256([]byte(scriptContent))
+	wantDigest := "sha256:" + hex.EncodeToString(sum[:])
+	reloaded, err := lockfile.Load(lockfile.FileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Providers["aws"].Platforms[runtime.GOOS+"_"+runtime.GOARCH].Digest; got != wantDigest {
+		t.Errorf("lock digest after --force = %q, want it updated to the newly installed binary's digest %q", got, wantDigest)
+	}
+}
+
+func TestInitDownloadFailsClearlyWhenNoReleaseExists(t *testing.T) {
+	dir := chdirTemp(t)
+	writeEnvFile(t, dir, "DB_PASSWORD=aws-sm:prod/db/password\n")
+
+	origModuleDir := moduleDir
+	moduleDir = ""
+	t.Cleanup(func() { moduleDir = origModuleDir })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	restore := providerdownload.SetBaseURLForTesting(srv.URL)
+	t.Cleanup(restore)
+
+	_, _, err := runCLI("init")
+	if err == nil {
+		t.Fatal("expected an error when no release has been published")
+	}
+	if !strings.Contains(err.Error(), "downloading provider") {
+		t.Errorf("error = %v, want it to mention the download failure", err)
 	}
 }

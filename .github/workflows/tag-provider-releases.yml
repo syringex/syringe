@@ -1,0 +1,44 @@
+name: Tag provider releases
+
+# providers/manifest.json's per-provider "version" field is the single
+# source of truth for what should be released — bumping it and merging to
+# main is the entire release step for a provider (see CONTRIBUTING.md).
+# This job watches for that and creates the tag that actually triggers a
+# release; it never builds or publishes anything itself.
+#
+# Every provider's tag namespace (<name>/v<version>) is independent of
+# inject core's own v<version> tags and of every other provider's tags, so
+# e.g. inject can sit at v0.1.2 while aws is at aws/v0.1.1 and a future gcp
+# provider is still at gcp/v0.1.0 — nothing here ties them together.
+on:
+  push:
+    branches: [main]
+    paths:
+      - providers/manifest.json
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to push the new tag(s)
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # need full tag history to check what's already released
+
+      - name: Tag any provider whose manifest version has no release tag yet
+        run: |
+          set -euo pipefail
+          for name in $(jq -r '.providers | keys[]' providers/manifest.json); do
+            version=$(jq -r --arg n "$name" '.providers[$n].version' providers/manifest.json)
+            tag="${name}/v${version}"
+
+            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+              echo "${tag}: already released, skipping"
+              continue
+            fi
+
+            echo "${tag}: no release yet, tagging"
+            git tag "${tag}"
+            git push origin "${tag}"
+          done

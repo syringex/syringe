@@ -12,9 +12,9 @@ jobs:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -45,11 +45,11 @@ jobs:
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history + tags, so `git describe` below is meaningful
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -60,7 +60,7 @@ jobs:
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - name: Build binaries
+      - name: Build inject
         env:
           VERSION: ${{ steps.version.outputs.version }}
           COMMIT: ${{ steps.version.outputs.commit }}
@@ -68,17 +68,45 @@ jobs:
         run: |
           EXT=""
           if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
-          LDFLAGS="-X github.com/syringex/syringe/internal/cmd.version=${VERSION} -X github.com/syringex/syringe/internal/cmd.commit=${COMMIT} -X github.com/syringex/syringe/internal/cmd.date=${DATE}"
-          mkdir -p dist
-          go build -ldflags "${LDFLAGS}" -o "dist/inject${EXT}" ./cmd/inject
-          go build -o "dist/inject-provider-aws${EXT}" ./providers/aws/cmd/inject-provider-aws
+          mkdir -p dist/inject
+          go build -ldflags "-X github.com/syringex/syringe/internal/cmd.version=${VERSION} -X github.com/syringex/syringe/internal/cmd.commit=${COMMIT} -X github.com/syringex/syringe/internal/cmd.date=${DATE}" -o "dist/inject/inject${EXT}" ./cmd/inject
 
-      - name: Generate checksums
-        working-directory: dist
+      - name: Checksum inject
+        working-directory: dist/inject
         run: sha256sum * > checksums.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: inject_${{ steps.version.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: dist/*
+          path: dist/inject/*
+          if-no-files-found: error
+
+      # Every provider declared in providers/manifest.json is built here —
+      # adding a provider to the manifest is the only change needed for it
+      # to start showing up in this artifact, no workflow edits required.
+      # (All providers for a platform are bundled into one artifact rather
+      # than one artifact each: GitHub Actions' matrix can't dynamically
+      # fan out into N artifact-upload steps from a file read at runtime
+      # without a second matrix-generating job, which isn't worth the extra
+      # indirection for what's currently a single provider.)
+      - name: Build providers
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          mkdir -p dist/providers
+          cp providers/manifest.json dist/providers/manifest.json
+          for name in $(jq -r '.providers | keys[]' providers/manifest.json); do
+            pkg=$(jq -r --arg n "$name" '.providers[$n].package' providers/manifest.json)
+            version=$(jq -r --arg n "$name" '.providers[$n].version' providers/manifest.json)
+            go build -ldflags "-X ${pkg}.version=${version}" -o "dist/providers/inject-provider-${name}${EXT}" "$pkg"
+          done
+
+      - name: Checksum providers
+        working-directory: dist/providers
+        run: sha256sum inject-provider-* > checksums.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: inject-providers_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/providers/*
           if-no-files-found: error

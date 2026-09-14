@@ -44,6 +44,14 @@ const (
 	tagParameterStore = "aws-ssm"
 )
 
+// version is this provider's own version (independent of inject core's),
+// set at build time via -ldflags -X from providers/manifest.json's
+// "version" field for the "aws" entry (see internal/cmd/init.go and the CI
+// workflows). It's embedded purely for forensic/debugging purposes (e.g.
+// visible via `strings`) — syringe.lock is what actually records which
+// version was installed, verified independently via a digest.
+var version = "dev"
+
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "init" {
 		env, errPayload := runInit(context.Background(), os.Stdin, os.Stderr, term.IsTerminal(int(os.Stdin.Fd())))
@@ -209,7 +217,7 @@ func resolveSecret(ctx context.Context, client secretsManagerClient, ref string)
 
 	out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretID)})
 	if err != nil {
-		return providerproto.ResolveResult{}, &providerproto.ErrorPayload{Kind: classify(err), Message: err.Error()}
+		return providerproto.ResolveResult{}, &providerproto.ErrorPayload{Kind: classify(err), Message: formatAWSError(err)}
 	}
 	switch {
 	case out.SecretString != nil:
@@ -243,7 +251,7 @@ func validateSecret(ctx context.Context, client secretsManagerClient, ref string
 	secretID, _ := splitJSONKey(ref)
 	_, err := client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretID)})
 	if err != nil {
-		return &providerproto.ErrorPayload{Kind: classify(err), Message: err.Error()}
+		return &providerproto.ErrorPayload{Kind: classify(err), Message: formatAWSError(err)}
 	}
 	return nil
 }
@@ -267,7 +275,10 @@ func extractJSONKey(raw, key string) (string, *providerproto.ErrorPayload) {
 		return "", &providerproto.ErrorPayload{Kind: providerproto.KindInvalidRef, Message: fmt.Sprintf("value is not a JSON object, cannot select key %q", key)}
 	}
 	v, ok := fields[key]
-	if !ok {
+	if !ok || v == nil {
+		// A JSON null is treated the same as a missing key: rendering it as
+		// the literal string "null" would silently satisfy a required
+		// secret with a bogus four-character value instead of a clear error.
 		return "", &providerproto.ErrorPayload{Kind: providerproto.KindNotFound, Message: fmt.Sprintf("key %q not found in secret", key)}
 	}
 	if s, ok := v.(string); ok {
@@ -297,7 +308,7 @@ func resolveParameter(ctx context.Context, client parameterStoreClient, ref stri
 
 	out, err := client.GetParameter(ctx, &ssm.GetParameterInput{Name: aws.String(name), WithDecryption: aws.Bool(true)})
 	if err != nil {
-		return providerproto.ResolveResult{}, &providerproto.ErrorPayload{Kind: classify(err), Message: err.Error()}
+		return providerproto.ResolveResult{}, &providerproto.ErrorPayload{Kind: classify(err), Message: formatAWSError(err)}
 	}
 	if out.Parameter == nil || out.Parameter.Value == nil {
 		return providerproto.ResolveResult{}, &providerproto.ErrorPayload{Kind: providerproto.KindNotFound, Message: "parameter has no value"}
@@ -324,12 +335,37 @@ func validateParameter(ctx context.Context, client parameterStoreClient, ref str
 		},
 	})
 	if err != nil {
-		return &providerproto.ErrorPayload{Kind: classify(err), Message: err.Error()}
+		return &providerproto.ErrorPayload{Kind: classify(err), Message: formatAWSError(err)}
 	}
 	if len(out.Parameters) == 0 {
 		return &providerproto.ErrorPayload{Kind: providerproto.KindNotFound, Message: "parameter not found"}
 	}
 	return nil
+}
+
+// formatAWSError renders a clean "<code>: <message>" string for an AWS SDK
+// error by extracting just the modeled error code/message, instead of the
+// SDK's often deeply-nested operation/transport wrapper chain (e.g.
+// "operation error Secrets Manager: GetSecretValue, https response error
+// StatusCode: 400, RequestID: ..., api error ValidationException: ..."). A
+// non-API error (network failure, missing credentials, ...) falls back to
+// its own message, which is already reasonably clear.
+func formatAWSError(err error) string {
+	apiErr, ok := errors.AsType[smithy.APIError](err)
+	if !ok {
+		return err.Error()
+	}
+	code, msg := apiErr.ErrorCode(), apiErr.ErrorMessage()
+	switch {
+	case code != "" && msg != "":
+		return code + ": " + msg
+	case code != "":
+		return code
+	case msg != "":
+		return msg
+	default:
+		return err.Error()
+	}
 }
 
 // classify maps an AWS SDK error to a protocol Kind via its modeled error

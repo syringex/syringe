@@ -60,6 +60,26 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestFormatAWSError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"code and message", &smithy.GenericAPIError{Code: "ResourceNotFoundException", Message: "Secrets Manager can't find the specified secret."}, "ResourceNotFoundException: Secrets Manager can't find the specified secret."},
+		{"code only", &smithy.GenericAPIError{Code: "AccessDeniedException"}, "AccessDeniedException"},
+		{"message only", &smithy.GenericAPIError{Message: "something went wrong"}, "something went wrong"},
+		{"non-API error falls back to Error()", errors.New("dial tcp: connection refused"), "dial tcp: connection refused"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := formatAWSError(c.err); got != c.want {
+				t.Errorf("formatAWSError(%v) = %q, want %q", c.err, got, c.want)
+			}
+		})
+	}
+}
+
 func TestResolveSecretString(t *testing.T) {
 	client := &fakeSMClient{getSecretValueOut: &secretsmanager.GetSecretValueOutput{
 		SecretString: strPtr("hunter2"),
@@ -119,6 +139,22 @@ func TestResolveSecretJSONKeyNotFound(t *testing.T) {
 	_, errPayload := resolveSecret(context.Background(), client, "prod/db/credentials#password")
 	if errPayload == nil {
 		t.Fatal("expected an error for a key not present in the JSON secret")
+	}
+	if errPayload.Kind != providerproto.KindNotFound {
+		t.Errorf("Kind = %q, want %q", errPayload.Kind, providerproto.KindNotFound)
+	}
+}
+
+// A JSON null must not be handed back as the four-character string "null" —
+// that would silently satisfy a required secret with a bogus value instead
+// of surfacing a clear error.
+func TestResolveSecretJSONKeyNullIsNotFound(t *testing.T) {
+	client := &fakeSMClient{getSecretValueOut: &secretsmanager.GetSecretValueOutput{
+		SecretString: strPtr(`{"username":"admin","password":null}`),
+	}}
+	_, errPayload := resolveSecret(context.Background(), client, "prod/db/credentials#password")
+	if errPayload == nil {
+		t.Fatal("expected an error for a null value, not a resolved \"null\" string")
 	}
 	if errPayload.Kind != providerproto.KindNotFound {
 		t.Errorf("Kind = %q, want %q", errPayload.Kind, providerproto.KindNotFound)

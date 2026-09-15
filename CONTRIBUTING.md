@@ -12,10 +12,10 @@ A provider is a standalone executable that speaks the wire protocol in
    reference tag (`aws-sm`, `aws-ssm`).
 2. Add an entry to `providers/manifest.json`:
    ```json
-   "gcp": {
+   "azure": {
      "version": "0.1.0",
-     "tags": ["gcp-sm"],
-     "package": "github.com/syringex/syringe/providers/gcp/cmd/inject-provider-gcp"
+     "tags": ["az-kv"],
+     "package": "github.com/syringex/syringe/providers/azure/cmd/inject-provider-azure"
    }
    ```
    This is the only place `inject init`, the registry, and CI learn about a

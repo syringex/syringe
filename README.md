@@ -10,11 +10,11 @@ PLAIN_VALUE=this-is-just-a-normal-value
 
 A value shaped like `tag:path` is treated as a reference to a secret manager; anything else is a plain literal, so existing `.env` files keep working unchanged.
 
-Each provider has its own README covering what's specific to it (supported tags, setup, required permissions, any extra reference syntax): [`providers/aws`](providers/aws/README.md).
+Each provider has its own README covering what's specific to it (supported tags, setup, required permissions, any extra reference syntax): [`providers/aws`](providers/aws/README.md), [`providers/gcp`](providers/gcp/README.md).
 
 ## Status
 
-- **Providers implemented:** one AWS provider, covering both AWS Secrets Manager (`aws-sm`) and AWS SSM Parameter Store (`aws-ssm`) — installed, configured, and built once (see [`providers/aws/README.md`](providers/aws/README.md)). GCP Secret Manager and Azure Key Vault are recognized as known tags but have no provider yet — referencing them will tell you so.
+- **Providers implemented:** an AWS provider covering both AWS Secrets Manager (`aws-sm`) and AWS SSM Parameter Store (`aws-ssm`) (see [`providers/aws/README.md`](providers/aws/README.md)), and a GCP provider covering GCP Secret Manager (`gcp-sm`) (see [`providers/gcp/README.md`](providers/gcp/README.md)). Azure Key Vault has no provider yet.
 - **Provider installation:** in a local monorepo checkout, `inject init` builds provider binaries from source (`go build`) into a project-local `.syringe/` directory, using [`providers/manifest.json`](providers/manifest.json) to know what to build and at what version. In a real, distributed `inject` binary, `init` instead downloads and checksum-verifies that provider's own released binary — see [CONTRIBUTING.md](CONTRIBUTING.md) for how a provider gets released, and `internal/providerdownload` for how a download is verified.
 - **Distribution:** pushing a `v<version>` tag runs `.github/workflows/release-inject.yml`, which builds, archives, and publishes a real GitHub Release for linux/darwin/windows × amd64/arm64 (see [releases](https://github.com/syringex/syringe/releases)). `.github/workflows/pr.yml` and `merge.yml` separately build the same matrix as ephemeral CI artifacts on every PR and merge to `main`, for trying out unreleased changes.
 

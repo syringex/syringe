@@ -4,6 +4,11 @@
       "version": "0.1.1",
       "tags": ["aws-sm", "aws-ssm"],
       "package": "github.com/syringex/syringe/providers/aws/cmd/inject-provider-aws"
+    },
+    "gcp": {
+      "version": "0.1.0",
+      "tags": ["gcp-sm"],
+      "package": "github.com/syringex/syringe/providers/gcp/cmd/inject-provider-gcp"
     }
   }
 }

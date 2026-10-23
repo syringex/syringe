@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/syringex/syringe/pkg/provider"
+	"github.com/syringex/syringe/internal/provider"
 )
 
 // Entry is one KEY=VALUE line, in file order.

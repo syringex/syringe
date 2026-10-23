@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/syringex/syringe/pkg/provider"
+	"github.com/syringex/syringe/internal/provider"
 )
 
 func TestParse(t *testing.T) {

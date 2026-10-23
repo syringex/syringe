@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/syringex/syringe/internal/execprovider"
-	"github.com/syringex/syringe/pkg/provider"
+	"github.com/syringex/syringe/internal/provider"
 )
 
 var fakeBinaryPath string

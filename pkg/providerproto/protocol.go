@@ -26,7 +26,7 @@
 package providerproto
 
 // Kind classifies why a resolve/validate call failed, mirroring
-// pkg/provider's error sentinels as a language-agnostic string so a
+// internal/provider's error sentinels as a language-agnostic string so a
 // provider written in any language can produce it.
 type Kind string
 

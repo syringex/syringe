@@ -6,8 +6,8 @@ import (
 
 	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
+	"github.com/syringex/syringe/internal/provider"
 	"github.com/syringex/syringe/internal/providerdir"
-	"github.com/syringex/syringe/pkg/provider"
 )
 
 // requiredTags returns the distinct, sorted set of tags entries reference.

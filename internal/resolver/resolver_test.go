@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/syringex/syringe/internal/envfile"
+	"github.com/syringex/syringe/internal/provider"
+	"github.com/syringex/syringe/internal/provider/providertest"
 	"github.com/syringex/syringe/internal/resolver"
-	"github.com/syringex/syringe/pkg/provider"
-	"github.com/syringex/syringe/pkg/provider/providertest"
 )
 
 func TestResolveOrderAndLiterals(t *testing.T) {

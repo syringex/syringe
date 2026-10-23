@@ -1,6 +1,6 @@
-// Package providertest offers test doubles for provider.Provider, exported
-// so both syringe's own tests and out-of-tree provider authors can reuse
-// them without hitting real cloud APIs.
+// Package providertest offers test doubles for provider.Provider, so tests
+// across inject's packages can exercise resolution without hitting real
+// cloud APIs.
 package providertest
 
 import (
@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/syringex/syringe/pkg/provider"
+	"github.com/syringex/syringe/internal/provider"
 )
 
 // FakeResponse is the canned result FakeProvider returns for a given path.

@@ -14,7 +14,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/syringex/syringe/pkg/provider"
+	"github.com/syringex/syringe/internal/provider"
 	"github.com/syringex/syringe/pkg/providerproto"
 )
 

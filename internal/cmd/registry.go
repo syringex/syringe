@@ -53,7 +53,7 @@ func requiredProviderNames(entries []envfile.Entry) []string {
 // installed binary is a clear error pointing at `inject init`, rather than
 // a silent, probably-unintended literal fallback.
 func buildRegistry(providerDir string, entries []envfile.Entry) (*provider.Registry, error) {
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	var missing []string
 
 	for _, tag := range requiredTags(entries) {

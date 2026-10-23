@@ -6,7 +6,7 @@ import (
 )
 
 // Sentinel error kinds. Providers classify SDK-specific errors into one of
-// these via NewError; callers compare with errors.Is.
+// these by returning an *Error; callers compare with errors.Is.
 var (
 	ErrNotFound     = errors.New("secret not found")
 	ErrAccessDenied = errors.New("access denied")
@@ -35,8 +35,3 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Is(target error) bool { return errors.Is(e.Kind, target) }
-
-// NewError constructs a classified provider error.
-func NewError(kind error, tag, path string, cause error) *Error {
-	return &Error{Kind: kind, Tag: tag, Path: path, Err: cause}
-}

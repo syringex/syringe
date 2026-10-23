@@ -13,13 +13,13 @@ import (
 )
 
 func TestResolveOrderAndLiterals(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			"prod/db/password": {Value: "hunter2"},
 		},
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	if err := registry.Register(fake); err != nil {
 		t.Fatal(err)
 	}
@@ -59,15 +59,15 @@ func TestResolveOrderAndLiterals(t *testing.T) {
 }
 
 func TestResolvePartialFailureNonFailFast(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			"good":  {Value: "ok"},
-			"bad":   {Err: provider.NewError(provider.ErrAccessDenied, "aws-sm", "bad", nil)},
+			"bad":   {Err: &provider.Error{Kind: provider.ErrAccessDenied, Tag: "aws-sm", Path: "bad"}},
 			"good2": {Value: "ok2"},
 		},
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	_ = registry.Register(fake)
 
 	entries := []envfile.Entry{
@@ -101,19 +101,19 @@ func TestResolvePartialFailureNonFailFast(t *testing.T) {
 }
 
 func TestResolveFailFastCancelsRemaining(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			// "bad" fails immediately; "slow1" would take 2s if allowed to
 			// run to completion. Distinct per-path delays (rather than one
-			// shared FakeProvider.Delay) make which one fails first
+			// shared Fake.Delay) make which one fails first
 			// deterministic instead of a race between two equally-delayed
 			// goroutines.
 			"slow1": {Value: "should-not-finish", Delay: 2 * time.Second},
-			"bad":   {Err: provider.NewError(provider.ErrAccessDenied, "aws-sm", "bad", nil)},
+			"bad":   {Err: &provider.Error{Kind: provider.ErrAccessDenied, Tag: "aws-sm", Path: "bad"}},
 		},
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	_ = registry.Register(fake)
 
 	entries := []envfile.Entry{
@@ -138,14 +138,14 @@ func TestResolveFailFastCancelsRemaining(t *testing.T) {
 }
 
 func TestResolvePerRefTimeout(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			"slow": {Value: "too-late"},
 		},
 		Delay: 200 * time.Millisecond,
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	_ = registry.Register(fake)
 
 	entries := []envfile.Entry{

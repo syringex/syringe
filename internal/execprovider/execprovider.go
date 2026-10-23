@@ -44,8 +44,12 @@ func (p *Provider) Resolve(ctx context.Context, path string) (provider.Secret, e
 	}
 	var res providerproto.ResolveResult
 	if jsonErr := json.Unmarshal(stdout, &res); jsonErr != nil {
-		return provider.Secret{}, provider.NewError(provider.ErrTransient, p.tag, path,
-			errors.New("malformed response from "+p.binaryPath+": "+jsonErr.Error()))
+		return provider.Secret{}, &provider.Error{
+			Kind: provider.ErrTransient,
+			Tag:  p.tag,
+			Path: path,
+			Err:  errors.New("malformed response from " + p.binaryPath + ": " + jsonErr.Error()),
+		}
 	}
 	return provider.Secret{Value: res.Value}, nil
 }
@@ -113,13 +117,18 @@ func (p *Provider) run(ctx context.Context, subcommand, path string) ([]byte, er
 	if runErr := cmd.Run(); runErr != nil {
 		var envelope providerproto.ErrorEnvelope
 		if jsonErr := json.Unmarshal(stdout.Bytes(), &envelope); jsonErr == nil && envelope.Error.Kind != "" {
-			return nil, provider.NewError(kindToSentinel(envelope.Error.Kind), p.tag, path, errors.New(envelope.Error.Message))
+			return nil, &provider.Error{
+				Kind: kindToSentinel(envelope.Error.Kind),
+				Tag:  p.tag,
+				Path: path,
+				Err:  errors.New(envelope.Error.Message),
+			}
 		}
 		msg := stderr.String()
 		if msg == "" {
 			msg = runErr.Error()
 		}
-		return nil, provider.NewError(provider.ErrTransient, p.tag, path, errors.New(msg))
+		return nil, &provider.Error{Kind: provider.ErrTransient, Tag: p.tag, Path: path, Err: errors.New(msg)}
 	}
 
 	return stdout.Bytes(), nil

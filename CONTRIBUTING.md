@@ -31,7 +31,7 @@ A provider is a standalone executable that speaks the wire protocol in
 
 At this point the provider builds from source via `inject init` in any local
 monorepo checkout (dev builds always build from source — see `moduleDir` in
-`internal/cmd/init.go`) and is ready to be released (next section) so a real
+`cmd/inject/init.go`) and is ready to be released (next section) so a real
 distributed `inject` binary can download it too.
 
 ## Releasing a new version of an existing provider

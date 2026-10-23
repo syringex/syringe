@@ -25,7 +25,7 @@ type Provider struct {
 	// Tags are the reference tags (as written in an .env file) this
 	// provider identity serves. Multiple tags can share one identity when
 	// they share configuration/credentials (aws-sm and aws-ssm both need
-	// just an AWS profile/region) — see internal/cmd/registry.go.
+	// just an AWS profile/region) — see cmd/inject/registry.go.
 	Tags []string `json:"tags"`
 	// Package is the Go package (within this monorepo) that builds this
 	// provider's binary.

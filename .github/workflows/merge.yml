@@ -74,7 +74,7 @@ jobs:
           EXT=""
           if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
           mkdir -p dist/inject
-          go build -ldflags "-X github.com/syringex/syringe/internal/cmd.version=${VERSION} -X github.com/syringex/syringe/internal/cmd.commit=${COMMIT} -X github.com/syringex/syringe/internal/cmd.date=${DATE}" -o "dist/inject/inject${EXT}" ./cmd/inject
+          go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "dist/inject/inject${EXT}" ./cmd/inject
 
       - name: Checksum inject
         working-directory: dist/inject

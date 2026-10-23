@@ -6,17 +6,14 @@
 package lockfile
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 )
 
-// FileName is syringe.lock's conventional name, created in the current
+// Name is syringe.lock's conventional name, created in the current
 // working directory (next to .env).
-const FileName = "syringe.lock"
+const Name = "syringe.lock"
 
 const currentVersion = 1
 
@@ -25,44 +22,45 @@ type Platform struct {
 	Digest string `json:"digest"`
 }
 
-// ProviderEntry records what's installed for one provider identity.
-type ProviderEntry struct {
+// Provider records what's installed for one provider identity.
+type Provider struct {
 	Version   string              `json:"version"`
 	Platforms map[string]Platform `json:"platforms"`
 }
 
-// Lockfile is the parsed shape of syringe.lock.
-type Lockfile struct {
-	LockfileVersion int                      `json:"lockfile_version"`
-	Providers       map[string]ProviderEntry `json:"providers"`
+// File is the parsed shape of syringe.lock.
+type File struct {
+	// Version is syringe.lock's own format version, not a provider's.
+	Version   int                 `json:"lockfile_version"`
+	Providers map[string]Provider `json:"providers"`
 }
 
-// Load reads path, returning an empty (but valid) Lockfile if it doesn't
+// Load reads path, returning an empty (but valid) File if it doesn't
 // exist yet — the normal case for a project's first `inject init`.
-func Load(path string) (Lockfile, error) {
+func Load(path string) (File, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return Lockfile{LockfileVersion: currentVersion, Providers: map[string]ProviderEntry{}}, nil
+		return File{Version: currentVersion, Providers: map[string]Provider{}}, nil
 	}
 	if err != nil {
-		return Lockfile{}, err
+		return File{}, err
 	}
 
-	var lf Lockfile
+	var lf File
 	if err := json.Unmarshal(data, &lf); err != nil {
-		return Lockfile{}, fmt.Errorf("parsing %s: %w", path, err)
+		return File{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if lf.Providers == nil {
-		lf.Providers = map[string]ProviderEntry{}
+		lf.Providers = map[string]Provider{}
 	}
 	return lf, nil
 }
 
 // SetPlatform records/updates one provider's version and one platform's
 // digest, preserving any other providers' and platforms' existing entries.
-func (lf *Lockfile) SetPlatform(provider, version, platform, digest string) {
+func (lf *File) SetPlatform(provider, version, platform, digest string) {
 	if lf.Providers == nil {
-		lf.Providers = map[string]ProviderEntry{}
+		lf.Providers = map[string]Provider{}
 	}
 	entry := lf.Providers[provider]
 	if entry.Platforms == nil {
@@ -74,9 +72,9 @@ func (lf *Lockfile) SetPlatform(provider, version, platform, digest string) {
 }
 
 // Save writes lf to path as indented JSON, creating or overwriting it.
-func (lf *Lockfile) Save(path string) error {
-	if lf.LockfileVersion == 0 {
-		lf.LockfileVersion = currentVersion
+func (lf *File) Save(path string) error {
+	if lf.Version == 0 {
+		lf.Version = currentVersion
 	}
 	data, err := json.MarshalIndent(lf, "", "  ")
 	if err != nil {
@@ -84,20 +82,4 @@ func (lf *Lockfile) Save(path string) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(path, data, 0o644)
-}
-
-// DigestFile returns the sha256 digest of the file at path, formatted as
-// "sha256:<hex>" (the same convention container image digests use).
-func DigestFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }

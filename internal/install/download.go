@@ -1,9 +1,4 @@
-// Package providerdownload downloads, verifies, and extracts a provider
-// binary from its GitHub Release. Used by `inject init` only for a real,
-// distributed inject binary — a contributor's local monorepo build (which
-// has `moduleDir` baked in) builds providers from source instead; see
-// internal/cmd/init.go.
-package providerdownload
+package install
 
 import (
 	"archive/tar"
@@ -40,14 +35,24 @@ func SetBaseURLForTesting(url string) (restore func()) {
 	return func() { baseURL = orig }
 }
 
-// ReleaseTag returns the git tag a provider's version is published under —
-// its own tag namespace, independent of inject core's `v<version>` tags.
-func ReleaseTag(providerName, version string) string {
-	return providerName + "/v" + version
+// Release identifies one provider version's published binary for one
+// platform.
+type Release struct {
+	Provider string // provider identity, e.g. "aws"
+	Version  string // e.g. "0.1.0", without a leading "v"
+	OS       string // a GOOS value
+	Arch     string // a GOARCH value
 }
 
-// BinaryName is the executable name inside a provider's release archive.
-func BinaryName(providerName, goos string) string {
+// Tag returns the git tag r's version is published under — the provider's
+// own tag namespace, independent of inject core's `v<version>` tags.
+func (r Release) Tag() string {
+	return r.Provider + "/v" + r.Version
+}
+
+// archiveBinaryName is the executable name inside a provider's release
+// archive.
+func archiveBinaryName(providerName, goos string) string {
 	name := "inject-provider-" + providerName
 	if goos == "windows" {
 		name += ".exe"
@@ -59,11 +64,11 @@ func releaseAssetURL(tag, filename string) string {
 	return fmt.Sprintf("%s/%s/releases/download/%s/%s", baseURL, githubRepo, tag, filename)
 }
 
-// FetchChecksums downloads and parses a release's checksums.txt (the
+// fetchChecksums downloads and parses a release's checksums.txt (the
 // standard `sha256sum`-style "<hex>  <filename>" format
 // release-provider.yml produces) into a filename -> lowercase hex digest
 // map.
-func FetchChecksums(ctx context.Context, tag string) (map[string]string, error) {
+func fetchChecksums(ctx context.Context, tag string) (map[string]string, error) {
 	body, err := get(ctx, releaseAssetURL(tag, "checksums.txt"))
 	if err != nil {
 		return nil, fmt.Errorf("fetching checksums for %s: %w", tag, err)
@@ -80,12 +85,12 @@ func FetchChecksums(ctx context.Context, tag string) (map[string]string, error) 
 	return sums, nil
 }
 
-// FindAsset picks the checksums.txt entry for providerName on the given
+// findAsset picks the checksums.txt entry for providerName on the given
 // platform, matching by "_<goos>_<goarch>" appearing in the filename
 // rather than predicting the exact archive naming a second time — one
 // source of truth (the real, published checksums file) instead of two
 // places that could drift out of sync.
-func FindAsset(checksums map[string]string, providerName, goos, goarch string) (filename, digest string, err error) {
+func findAsset(checksums map[string]string, providerName, goos, goarch string) (filename, digest string, err error) {
 	prefix := "inject-provider-" + providerName + "_"
 	suffix := fmt.Sprintf("_%s_%s", goos, goarch)
 	for name, digest := range checksums {
@@ -96,12 +101,12 @@ func FindAsset(checksums map[string]string, providerName, goos, goarch string) (
 	return "", "", fmt.Errorf("no released asset found for provider %q on %s/%s", providerName, goos, goarch)
 }
 
-// DownloadAndVerify downloads tag's asset and verifies its sha256 matches
+// downloadAndVerify downloads tag's asset and verifies its sha256 matches
 // wantDigest (lowercase hex, no "sha256:" prefix — checksums.txt's own
 // format), refusing to return anything on mismatch. This is the actual
 // security-relevant integrity check: it catches a corrupted download or a
 // tampered/replaced release asset, independent of TLS transport security.
-func DownloadAndVerify(ctx context.Context, tag, filename, wantDigest string) ([]byte, error) {
+func downloadAndVerify(ctx context.Context, tag, filename, wantDigest string) ([]byte, error) {
 	data, err := get(ctx, releaseAssetURL(tag, filename))
 	if err != nil {
 		return nil, fmt.Errorf("downloading %s: %w", filename, err)
@@ -114,9 +119,9 @@ func DownloadAndVerify(ctx context.Context, tag, filename, wantDigest string) ([
 	return data, nil
 }
 
-// ExtractBinary extracts binaryName out of a .tar.gz/.tgz or .zip archive
+// extractBinary extracts binaryName out of a .tar.gz/.tgz or .zip archive
 // (chosen by archiveFilename's extension).
-func ExtractBinary(archiveFilename string, archiveData []byte, binaryName string) ([]byte, error) {
+func extractBinary(archiveFilename string, archiveData []byte, binaryName string) ([]byte, error) {
 	switch {
 	case strings.HasSuffix(archiveFilename, ".tar.gz"), strings.HasSuffix(archiveFilename, ".tgz"):
 		return extractFromTarGz(archiveData, binaryName)
@@ -171,28 +176,30 @@ func extractFromZip(data []byte, binaryName string) ([]byte, error) {
 	return nil, fmt.Errorf("%s not found in archive", binaryName)
 }
 
-// Install downloads, verifies, and extracts providerName's version for
-// (goos, goarch) into destPath (whose parent directory must already
-// exist), returning "sha256:<hex>" of the extracted binary — the same
-// format internal/lockfile records for a source-built install.
-func Install(ctx context.Context, providerName, version, goos, goarch, destPath string) (digest string, err error) {
-	tag := ReleaseTag(providerName, version)
+// Download fetches rel from its GitHub Release, verifies it against the
+// release's published checksums, and extracts its binary into destPath
+// (whose parent directory must already exist), returning the extracted
+// binary's digest in FileDigest's format. Used by `inject init` only for a
+// real, distributed inject binary — a contributor's local monorepo build
+// (which has `moduleDir` baked in) builds providers from source instead.
+func Download(ctx context.Context, rel Release, destPath string) (digest string, err error) {
+	tag := rel.Tag()
 
-	checksums, err := FetchChecksums(ctx, tag)
+	checksums, err := fetchChecksums(ctx, tag)
 	if err != nil {
 		return "", err
 	}
-	filename, wantDigest, err := FindAsset(checksums, providerName, goos, goarch)
+	filename, wantDigest, err := findAsset(checksums, rel.Provider, rel.OS, rel.Arch)
 	if err != nil {
 		return "", err
 	}
-	archiveData, err := DownloadAndVerify(ctx, tag, filename, wantDigest)
+	archiveData, err := downloadAndVerify(ctx, tag, filename, wantDigest)
 	if err != nil {
 		return "", err
 	}
 
-	binaryName := BinaryName(providerName, goos)
-	binaryData, err := ExtractBinary(filename, archiveData, binaryName)
+	binaryName := archiveBinaryName(rel.Provider, rel.OS)
+	binaryData, err := extractBinary(filename, archiveData, binaryName)
 	if err != nil {
 		return "", fmt.Errorf("extracting %s from %s: %w", binaryName, filename, err)
 	}
@@ -202,7 +209,28 @@ func Install(ctx context.Context, providerName, version, goos, goarch, destPath 
 	}
 
 	sum := sha256.Sum256(binaryData)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return formatDigest(sum[:]), nil
+}
+
+// FileDigest returns the sha256 digest of the file at path, formatted as
+// "sha256:<hex>" (the same convention container image digests use) — the
+// format syringe.lock records.
+func FileDigest(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return formatDigest(h.Sum(nil)), nil
+}
+
+func formatDigest(sum []byte) string {
+	return "sha256:" + hex.EncodeToString(sum)
 }
 
 func writeExecutable(path string, data []byte) error {

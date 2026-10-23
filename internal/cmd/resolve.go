@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/syringex/syringe/internal/envfile"
-	"github.com/syringex/syringe/internal/providerdir"
+	"github.com/syringex/syringe/internal/install"
 	"github.com/syringex/syringe/internal/resolve"
 )
 
@@ -16,8 +16,7 @@ import (
 // success/failure so they can report every failing key, not just the
 // first.
 func resolveEntries(ctx context.Context, f *flags, entries []envfile.Entry) (*resolve.Result, error) {
-	dir := providerdir.Dir(".")
-	registry, err := buildRegistry(dir, entries)
+	registry, err := buildRegistry(install.DirIn("."), entries)
 	if err != nil {
 		return nil, err
 	}

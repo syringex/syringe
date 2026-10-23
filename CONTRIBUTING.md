@@ -62,7 +62,7 @@ is no manual tagging step and nothing to install locally:
 `inject init` on a real distributed binary resolves this exact tag: it
 fetches that release's `checksums.txt`, verifies the downloaded archive's
 digest against it, and only then installs the extracted binary — see
-`internal/providerdownload`.
+`internal/install`.
 
 A provider version only becomes installable by anyone else once this has
 actually run on `main`. Bumping `manifest.json` on a branch that hasn't

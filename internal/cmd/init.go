@@ -12,9 +12,8 @@ import (
 
 	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
+	"github.com/syringex/syringe/internal/install"
 	"github.com/syringex/syringe/internal/lockfile"
-	"github.com/syringex/syringe/internal/providerdir"
-	"github.com/syringex/syringe/internal/providerdownload"
 )
 
 // moduleDir is the absolute path to this monorepo's source, baked into the
@@ -67,10 +66,10 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 	if err != nil {
 		return err
 	}
-	dir := providerdir.Dir(cwd)
+	dir := install.DirIn(cwd)
 	out := cmd.OutOrStdout()
 
-	lf, err := lockfile.Load(lockfile.FileName)
+	lf, err := lockfile.Load(lockfile.Name)
 	if err != nil {
 		return err
 	}
@@ -82,7 +81,7 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 	lockUpdated := false
 
 	for _, name := range requiredProviderNames(entries) {
-		binaryInstalled := providerdir.Exists(dir, name)
+		binaryInstalled := dir.IsInstalled(name)
 
 		// Respect an existing lock pin by default — the whole point of the
 		// lock file is that a checked-in syringe.lock keeps installing the
@@ -108,14 +107,11 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 				unbuildable = append(unbuildable, name)
 				continue
 			}
-			if err := providerdir.EnsureDir(dir); err != nil {
-				return err
-			}
-			if err := providerdir.EnsureProviderDir(dir, name); err != nil {
+			if err := dir.Prepare(name); err != nil {
 				return err
 			}
 
-			binPath := providerdir.BinaryPath(dir, name)
+			binPath := dir.BinaryPath(name)
 			fmt.Fprintf(out, "%s: building from %s (version %s)\n", name, pkg, version)
 			build := exec.Command("go", "build", "-ldflags", "-X "+pkg+".version="+version, "-o", binPath, pkg)
 			build.Dir = moduleDir
@@ -129,16 +125,13 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		default:
 			// A real, distributed inject binary: download and verify the
 			// provider's released binary against its published checksums.
-			if err := providerdir.EnsureDir(dir); err != nil {
-				return err
-			}
-			if err := providerdir.EnsureProviderDir(dir, name); err != nil {
+			if err := dir.Prepare(name); err != nil {
 				return err
 			}
 
-			binPath := providerdir.BinaryPath(dir, name)
-			fmt.Fprintf(out, "%s: downloading version %s (%s)...\n", name, version, providerdownload.ReleaseTag(name, version))
-			d, err := providerdownload.Install(cmd.Context(), name, version, runtime.GOOS, runtime.GOARCH, binPath)
+			rel := install.Release{Provider: name, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH}
+			fmt.Fprintf(out, "%s: downloading version %s (%s)...\n", name, version, rel.Tag())
+			d, err := install.Download(cmd.Context(), rel, dir.BinaryPath(name))
 			if err != nil {
 				return fmt.Errorf("downloading provider %q: %w", name, err)
 			}
@@ -151,8 +144,8 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 			// (freshly built, already installed, or downloaded above), so
 			// syringe.lock stays an accurate reflection of what's actually
 			// on disk even if it was missing, stale, or hand-edited. The
-			// download path above already has its digest from Install.
-			d, err := lockfile.DigestFile(providerdir.BinaryPath(dir, name))
+			// download path above already has its digest from Download.
+			d, err := install.FileDigest(dir.BinaryPath(name))
 			if err != nil {
 				return fmt.Errorf("digesting provider %q: %w", name, err)
 			}
@@ -171,7 +164,7 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		if moduleDir == "" && !force {
 			if existing, ok := lf.Providers[name]; ok && existing.Version == version {
 				if p, ok := existing.Platforms[platform]; ok && p.Digest != "" && p.Digest != digest {
-					return fmt.Errorf("provider %q version %s: installed binary digest %s does not match %s's recorded digest %s for %s — refusing to continue (this could mean the release was replaced/tampered with after %s was committed, or the local binary was modified out of band); re-run with --force if this is expected", name, version, digest, lockfile.FileName, p.Digest, platform, lockfile.FileName)
+					return fmt.Errorf("provider %q version %s: installed binary digest %s does not match %s's recorded digest %s for %s — refusing to continue (this could mean the release was replaced/tampered with after %s was committed, or the local binary was modified out of band); re-run with --force if this is expected", name, version, digest, lockfile.Name, p.Digest, platform, lockfile.Name)
 				}
 			}
 		}
@@ -179,11 +172,11 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		lf.SetPlatform(name, version, platform, digest)
 		lockUpdated = true
 
-		if force || !providerdir.HasConfig(dir, name) {
+		if force || !dir.HasConfig(name) {
 			fmt.Fprintf(out, "%s: configuring...\n", name)
 			// "init" configures the shared provider identity, not a
 			// specific tag, so TagName here only labels Init's errors.
-			p := &execprovider.Provider{TagName: name, Binary: providerdir.BinaryPath(dir, name)}
+			p := &execprovider.Provider{TagName: name, Binary: dir.BinaryPath(name)}
 			env, err := p.Init(cmd.Context())
 			if err != nil {
 				// A configure failure for one provider (e.g. non-interactive
@@ -194,20 +187,20 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 				configFailures = append(configFailures, name)
 				continue
 			}
-			if err := providerdir.SaveEnv(dir, name, env); err != nil {
+			if err := dir.SaveEnv(name, env); err != nil {
 				return err
 			}
 		}
 	}
 
 	if lockUpdated {
-		if err := lf.Save(lockfile.FileName); err != nil {
-			return fmt.Errorf("writing %s: %w", lockfile.FileName, err)
+		if err := lf.Save(lockfile.Name); err != nil {
+			return fmt.Errorf("writing %s: %w", lockfile.Name, err)
 		}
 	}
 
 	if installedAny {
-		if err := ensureGitignored(providerdir.Dir(".")); err != nil {
+		if err := ensureGitignored(string(install.DirIn("."))); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not update .gitignore: %v\n", err)
 		}
 	}

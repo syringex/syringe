@@ -6,8 +6,8 @@ import (
 
 	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
+	"github.com/syringex/syringe/internal/install"
 	"github.com/syringex/syringe/internal/provider"
-	"github.com/syringex/syringe/internal/providerdir"
 )
 
 // requiredTags returns the distinct, sorted set of tags entries reference.
@@ -47,12 +47,12 @@ func requiredProviderNames(entries []envfile.Entry) []string {
 }
 
 // buildRegistry constructs a provider.Registry for entries' references,
-// backed by binaries installed under providerDir. A tag with no entry in
+// backed by binaries installed under dir. A tag with no entry in
 // providerNames is left as a literal (most likely coincidental, e.g.
 // "note:see-section-3"). A known tag whose provider identity has no
 // installed binary is a clear error pointing at `inject init`, rather than
 // a silent, probably-unintended literal fallback.
-func buildRegistry(providerDir string, entries []envfile.Entry) (*provider.Registry, error) {
+func buildRegistry(dir install.Dir, entries []envfile.Entry) (*provider.Registry, error) {
 	registry := &provider.Registry{}
 	var missing []string
 
@@ -61,12 +61,12 @@ func buildRegistry(providerDir string, entries []envfile.Entry) (*provider.Regis
 		if !ok {
 			continue
 		}
-		if providerdir.Exists(providerDir, name) {
-			extraEnv, err := providerdir.LoadEnv(providerDir, name)
+		if dir.IsInstalled(name) {
+			extraEnv, err := dir.LoadEnv(name)
 			if err != nil {
 				return nil, fmt.Errorf("loading config for %q: %w", name, err)
 			}
-			binPath := providerdir.BinaryPath(providerDir, name)
+			binPath := dir.BinaryPath(name)
 			if err := registry.Register(&execprovider.Provider{TagName: tag, Binary: binPath, Env: extraEnv}); err != nil {
 				return nil, err
 			}

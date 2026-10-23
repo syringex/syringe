@@ -2,7 +2,7 @@ package provider
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 )
 
@@ -45,6 +45,6 @@ func (r *Registry) Tags() []string {
 	for t := range r.providers {
 		tags = append(tags, t)
 	}
-	sort.Strings(tags)
+	slices.Sort(tags)
 	return tags
 }

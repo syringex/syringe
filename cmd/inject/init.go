@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -222,7 +224,7 @@ func ensureGitignored(dir string) error {
 	const gitignorePath = ".gitignore"
 
 	existing, err := os.ReadFile(gitignorePath)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	for line := range strings.SplitSeq(string(existing), "\n") {

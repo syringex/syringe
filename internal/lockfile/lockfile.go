@@ -7,7 +7,9 @@ package lockfile
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 )
 
@@ -39,7 +41,7 @@ type File struct {
 // exist yet — the normal case for a project's first `inject init`.
 func Load(path string) (File, error) {
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return File{Version: currentVersion, Providers: map[string]Provider{}}, nil
 	}
 	if err != nil {

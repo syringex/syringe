@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
@@ -22,7 +22,7 @@ func requiredTags(entries []envfile.Entry) []string {
 	for t := range seen {
 		tags = append(tags, t)
 	}
-	sort.Strings(tags)
+	slices.Sort(tags)
 	return tags
 }
 
@@ -42,7 +42,7 @@ func requiredProviderNames(entries []envfile.Entry) []string {
 	for n := range seen {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 

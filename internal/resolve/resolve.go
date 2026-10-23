@@ -49,7 +49,6 @@ func Entries(ctx context.Context, registry *provider.Registry, entries []envfile
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(concurrency)
 		for i, e := range entries {
-			i, e := i, e
 			g.Go(func() error {
 				re, err := resolveOne(gctx, registry, e, opts.PerRefTimeout)
 				results[i] = re
@@ -65,7 +64,6 @@ func Entries(ctx context.Context, registry *provider.Registry, entries []envfile
 	var g errgroup.Group
 	g.SetLimit(concurrency)
 	for i, e := range entries {
-		i, e := i, e
 		g.Go(func() error {
 			re, _ := resolveOne(ctx, registry, e, opts.PerRefTimeout)
 			results[i] = re

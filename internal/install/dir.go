@@ -4,7 +4,9 @@
 package install
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -42,7 +44,7 @@ func (d Dir) Prepare(name string) error {
 		if !info.IsDir() {
 			return fmt.Errorf("%s exists and is not a directory", d)
 		}
-	} else if !os.IsNotExist(err) {
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(string(d), "providers"), 0o755); err != nil {
@@ -76,7 +78,7 @@ func (d Dir) HasConfig(name string) bool {
 // is not an error — it just means the provider has no extra config.
 func (d Dir) LoadEnv(name string) (map[string]string, error) {
 	data, err := os.ReadFile(d.ConfigPath(name))
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {

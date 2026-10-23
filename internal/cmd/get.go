@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/syringex/syringe/internal/parser"
+	"github.com/syringex/syringe/internal/envfile"
 )
 
 func newGetCmd(f *flags) *cobra.Command {
@@ -20,22 +20,22 @@ func newGetCmd(f *flags) *cobra.Command {
 }
 
 func runGet(cmd *cobra.Command, f *flags, key string) error {
-	entries, err := parser.ParseFile(f.file)
+	entries, err := envfile.ParseFile(f.file)
 	if err != nil {
 		return err
 	}
 
-	var match *parser.Entry
+	var match *envfile.Entry
 	for i := range entries {
 		if entries[i].Key == key {
-			match = &entries[i] // last occurrence wins, matching parser's documented semantics
+			match = &entries[i] // last occurrence wins, matching envfile.Parse's documented semantics
 		}
 	}
 	if match == nil {
 		return fmt.Errorf("key %q not found in %s", key, f.file)
 	}
 
-	result, err := resolveEntries(cmd.Context(), f, []parser.Entry{*match})
+	result, err := resolveEntries(cmd.Context(), f, []envfile.Entry{*match})
 	if err != nil {
 		return err
 	}

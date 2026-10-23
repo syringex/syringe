@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/syringex/syringe/internal/parser"
+	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/resolver"
 	"github.com/syringex/syringe/pkg/provider"
 	"github.com/syringex/syringe/pkg/provider/providertest"
@@ -24,7 +24,7 @@ func TestResolveOrderAndLiterals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "DB_PASSWORD", RawValue: "aws-sm:prod/db/password", Ref: &provider.Ref{Tag: "aws-sm", Path: "prod/db/password"}, Line: 1},
 		{Key: "PLAIN", RawValue: "just-a-value", Line: 2},
 		{Key: "TYPO_TAG", RawValue: "aws-ssm:not/registered", Ref: &provider.Ref{Tag: "aws-ssm", Path: "not/registered"}, Line: 3},
@@ -70,7 +70,7 @@ func TestResolvePartialFailureNonFailFast(t *testing.T) {
 	registry := provider.NewRegistry()
 	_ = registry.Register(fake)
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "A", RawValue: "aws-sm:good", Ref: &provider.Ref{Tag: "aws-sm", Path: "good"}, Line: 1},
 		{Key: "B", RawValue: "aws-sm:bad", Ref: &provider.Ref{Tag: "aws-sm", Path: "bad"}, Line: 2},
 		{Key: "C", RawValue: "aws-sm:good2", Ref: &provider.Ref{Tag: "aws-sm", Path: "good2"}, Line: 3},
@@ -116,7 +116,7 @@ func TestResolveFailFastCancelsRemaining(t *testing.T) {
 	registry := provider.NewRegistry()
 	_ = registry.Register(fake)
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "SLOW1", RawValue: "aws-sm:slow1", Ref: &provider.Ref{Tag: "aws-sm", Path: "slow1"}, Line: 1},
 		{Key: "BAD", RawValue: "aws-sm:bad", Ref: &provider.Ref{Tag: "aws-sm", Path: "bad"}, Line: 2},
 	}
@@ -148,7 +148,7 @@ func TestResolvePerRefTimeout(t *testing.T) {
 	registry := provider.NewRegistry()
 	_ = registry.Register(fake)
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "SLOW", RawValue: "aws-sm:slow", Ref: &provider.Ref{Tag: "aws-sm", Path: "slow"}, Line: 1},
 	}
 

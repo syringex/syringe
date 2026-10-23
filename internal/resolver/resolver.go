@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/syringex/syringe/internal/parser"
+	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/pkg/provider"
 )
 
@@ -47,7 +47,7 @@ func New(registry *provider.Registry, opts Options) *Resolver {
 // short-circuits remaining work and is returned as the second value;
 // otherwise Resolve's error return is always nil and failures are found via
 // Result.Failed()/HasErrors().
-func (r *Resolver) Resolve(ctx context.Context, entries []parser.Entry) (*Result, error) {
+func (r *Resolver) Resolve(ctx context.Context, entries []envfile.Entry) (*Result, error) {
 	results := make([]ResolvedEntry, len(entries))
 
 	concurrency := r.opts.Concurrency
@@ -89,7 +89,7 @@ func (r *Resolver) Resolve(ctx context.Context, entries []parser.Entry) (*Result
 // resolveOne resolves a single entry. A nil Ref, or a Ref whose tag isn't
 // registered, is treated as a literal value (backward-compatible fallback
 // for typo'd or unrecognized "tag:"-shaped values).
-func (r *Resolver) resolveOne(ctx context.Context, e parser.Entry) (ResolvedEntry, error) {
+func (r *Resolver) resolveOne(ctx context.Context, e envfile.Entry) (ResolvedEntry, error) {
 	if e.Ref == nil {
 		return ResolvedEntry{Key: e.Key, Value: e.RawValue, Line: e.Line}, nil
 	}

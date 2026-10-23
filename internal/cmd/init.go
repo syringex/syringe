@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
 	"github.com/syringex/syringe/internal/lockfile"
-	"github.com/syringex/syringe/internal/parser"
 	"github.com/syringex/syringe/internal/providerdir"
 	"github.com/syringex/syringe/internal/providerdownload"
 )
@@ -55,7 +55,7 @@ func newInitCmd(f *flags) *cobra.Command {
 // with no known provider identity is left alone entirely — it's presumed a
 // literal, not a typo.
 func runInit(cmd *cobra.Command, f *flags, force bool) error {
-	entries, err := parser.ParseFile(f.file)
+	entries, err := envfile.ParseFile(f.file)
 	if err != nil {
 		return err
 	}

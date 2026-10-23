@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/syringex/syringe/internal/parser"
+	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/providerdir"
 	"github.com/syringex/syringe/internal/resolver"
 )
@@ -15,7 +15,7 @@ import (
 // It never fails fast: callers inspect the returned Result for per-key
 // success/failure so they can report every failing key, not just the
 // first.
-func resolveEntries(ctx context.Context, f *flags, entries []parser.Entry) (*resolver.Result, error) {
+func resolveEntries(ctx context.Context, f *flags, entries []envfile.Entry) (*resolver.Result, error) {
 	dir := providerdir.Dir(".")
 	registry, err := buildRegistry(dir, entries)
 	if err != nil {
@@ -31,7 +31,7 @@ func resolveEntries(ctx context.Context, f *flags, entries []parser.Entry) (*res
 
 // resolveAll parses f.file and resolves every entry in it.
 func resolveAll(ctx context.Context, f *flags) (*resolver.Result, error) {
-	entries, err := parser.ParseFile(f.file)
+	entries, err := envfile.ParseFile(f.file)
 	if err != nil {
 		return nil, err
 	}

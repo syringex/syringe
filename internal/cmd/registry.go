@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
-	"github.com/syringex/syringe/internal/parser"
 	"github.com/syringex/syringe/internal/providerdir"
 	"github.com/syringex/syringe/pkg/provider"
 )
 
 // requiredTags returns the distinct, sorted set of tags entries reference.
-func requiredTags(entries []parser.Entry) []string {
+func requiredTags(entries []envfile.Entry) []string {
 	seen := map[string]bool{}
 	for _, e := range entries {
 		if e.Ref != nil {
@@ -31,7 +31,7 @@ func requiredTags(entries []parser.Entry) []string {
 // provider identity are skipped — presumed literals, not typos). Multiple
 // tags can share one identity (aws-sm and aws-ssm both need just "aws"),
 // so this can return fewer entries than requiredTags.
-func requiredProviderNames(entries []parser.Entry) []string {
+func requiredProviderNames(entries []envfile.Entry) []string {
 	seen := map[string]bool{}
 	for _, tag := range requiredTags(entries) {
 		if name, ok := providerNames[tag]; ok {
@@ -52,7 +52,7 @@ func requiredProviderNames(entries []parser.Entry) []string {
 // "note:see-section-3"). A known tag whose provider identity has no
 // installed binary is a clear error pointing at `inject init`, rather than
 // a silent, probably-unintended literal fallback.
-func buildRegistry(providerDir string, entries []parser.Entry) (*provider.Registry, error) {
+func buildRegistry(providerDir string, entries []envfile.Entry) (*provider.Registry, error) {
 	registry := provider.NewRegistry()
 	var missing []string
 

@@ -1,6 +1,6 @@
 package resolver
 
-// ResolvedEntry is the outcome of resolving one parser.Entry.
+// ResolvedEntry is the outcome of resolving one envfile.Entry.
 type ResolvedEntry struct {
 	Key   string
 	Value string // empty when Err != nil

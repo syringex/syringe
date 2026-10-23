@@ -45,3 +45,15 @@ func TestLoadRejectsMalformedJSON(t *testing.T) {
 		t.Fatal("expected an error for malformed JSON")
 	}
 }
+
+func TestProviderFor(t *testing.T) {
+	m := MustLoad()
+	for _, tag := range []string{"aws-sm", "aws-ssm"} {
+		if name, ok := m.ProviderFor(tag); !ok || name != "aws" {
+			t.Errorf("ProviderFor(%q) = %q, %v; want \"aws\", true", tag, name, ok)
+		}
+	}
+	if name, ok := m.ProviderFor("note"); ok {
+		t.Errorf("ProviderFor(\"note\") = %q, true; want no provider", name)
+	}
+}

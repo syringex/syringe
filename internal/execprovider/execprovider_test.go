@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/syringex/syringe/internal/execprovider"
-	"github.com/syringex/syringe/pkg/provider"
+	"github.com/syringex/syringe/internal/provider"
 )
 
 var fakeBinaryPath string
@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestResolveSuccess(t *testing.T) {
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 	secret, err := p.Resolve(context.Background(), "my/path")
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
@@ -55,7 +55,7 @@ func TestResolveErrorKinds(t *testing.T) {
 		{"transient", provider.ErrTransient},
 		{"invalid-ref", provider.ErrInvalidRef},
 	}
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 	for _, c := range cases {
 		_, err := p.Resolve(context.Background(), c.path)
 		if err == nil {
@@ -69,7 +69,7 @@ func TestResolveErrorKinds(t *testing.T) {
 }
 
 func TestResolveMalformedOutputFallsBackToTransient(t *testing.T) {
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 
 	// "malformed" exits 0 but prints non-JSON: parsing the success envelope fails.
 	if _, err := p.Resolve(context.Background(), "malformed"); err == nil {
@@ -88,14 +88,14 @@ func TestResolveMalformedOutputFallsBackToTransient(t *testing.T) {
 }
 
 func TestValidateSuccess(t *testing.T) {
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 	if err := p.Validate(context.Background(), "my/path"); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
 }
 
 func TestResolveContextTimeoutKillsSubprocess(t *testing.T) {
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
@@ -114,7 +114,7 @@ func TestResolveContextTimeoutKillsSubprocess(t *testing.T) {
 func TestInitSkipsPromptWhenAlreadySatisfied(t *testing.T) {
 	t.Setenv("FAKE_INIT_MODE", "") // default branch in fakeprovider: no prompt at all
 
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 	env, err := p.Init(context.Background())
 	if err != nil {
 		t.Fatalf("Init returned error: %v", err)
@@ -139,7 +139,7 @@ func TestInitPromptsAndReturnsEnv(t *testing.T) {
 	}()
 
 	t.Setenv("FAKE_INIT_MODE", "prompt")
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 	env, err := p.Init(context.Background())
 	if err != nil {
 		t.Fatalf("Init returned error: %v", err)
@@ -152,7 +152,7 @@ func TestInitPromptsAndReturnsEnv(t *testing.T) {
 func TestInitFailure(t *testing.T) {
 	t.Setenv("FAKE_INIT_MODE", "fail")
 
-	p := execprovider.New("fake", fakeBinaryPath, nil)
+	p := &execprovider.Provider{TagName: "fake", Binary: fakeBinaryPath}
 	if _, err := p.Init(context.Background()); err == nil {
 		t.Fatal("expected an error")
 	}

@@ -2,19 +2,15 @@ package provider
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 )
 
-// Registry maps a reference tag to the Provider that handles it.
+// Registry maps a reference tag to the Provider that handles it. The zero
+// value is an empty Registry ready to use.
 type Registry struct {
 	mu        sync.RWMutex
 	providers map[string]Provider
-}
-
-// NewRegistry returns an empty Registry.
-func NewRegistry() *Registry {
-	return &Registry{providers: make(map[string]Provider)}
 }
 
 // Register adds p under its own Tag(). It errors if that tag is already
@@ -23,6 +19,9 @@ func (r *Registry) Register(p Provider) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	tag := p.Tag()
+	if r.providers == nil {
+		r.providers = make(map[string]Provider)
+	}
 	if _, exists := r.providers[tag]; exists {
 		return fmt.Errorf("provider tag %q already registered", tag)
 	}
@@ -46,6 +45,6 @@ func (r *Registry) Tags() []string {
 	for t := range r.providers {
 		tags = append(tags, t)
 	}
-	sort.Strings(tags)
+	slices.Sort(tags)
 	return tags
 }

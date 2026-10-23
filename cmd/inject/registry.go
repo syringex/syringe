@@ -1,17 +1,17 @@
-package cmd
+package main
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
+	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
-	"github.com/syringex/syringe/internal/parser"
-	"github.com/syringex/syringe/internal/providerdir"
-	"github.com/syringex/syringe/pkg/provider"
+	"github.com/syringex/syringe/internal/install"
+	"github.com/syringex/syringe/internal/provider"
 )
 
 // requiredTags returns the distinct, sorted set of tags entries reference.
-func requiredTags(entries []parser.Entry) []string {
+func requiredTags(entries []envfile.Entry) []string {
 	seen := map[string]bool{}
 	for _, e := range entries {
 		if e.Ref != nil {
@@ -22,7 +22,7 @@ func requiredTags(entries []parser.Entry) []string {
 	for t := range seen {
 		tags = append(tags, t)
 	}
-	sort.Strings(tags)
+	slices.Sort(tags)
 	return tags
 }
 
@@ -31,10 +31,10 @@ func requiredTags(entries []parser.Entry) []string {
 // provider identity are skipped — presumed literals, not typos). Multiple
 // tags can share one identity (aws-sm and aws-ssm both need just "aws"),
 // so this can return fewer entries than requiredTags.
-func requiredProviderNames(entries []parser.Entry) []string {
+func requiredProviderNames(entries []envfile.Entry) []string {
 	seen := map[string]bool{}
 	for _, tag := range requiredTags(entries) {
-		if name, ok := providerNames[tag]; ok {
+		if name, ok := manifest.ProviderFor(tag); ok {
 			seen[name] = true
 		}
 	}
@@ -42,32 +42,32 @@ func requiredProviderNames(entries []parser.Entry) []string {
 	for n := range seen {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 
 // buildRegistry constructs a provider.Registry for entries' references,
-// backed by binaries installed under providerDir. A tag with no entry in
-// providerNames is left as a literal (most likely coincidental, e.g.
+// backed by binaries installed under dir. A tag no provider in manifest
+// serves is left as a literal (most likely coincidental, e.g.
 // "note:see-section-3"). A known tag whose provider identity has no
 // installed binary is a clear error pointing at `inject init`, rather than
 // a silent, probably-unintended literal fallback.
-func buildRegistry(providerDir string, entries []parser.Entry) (*provider.Registry, error) {
-	registry := provider.NewRegistry()
+func buildRegistry(dir install.Dir, entries []envfile.Entry) (*provider.Registry, error) {
+	registry := &provider.Registry{}
 	var missing []string
 
 	for _, tag := range requiredTags(entries) {
-		name, ok := providerNames[tag]
+		name, ok := manifest.ProviderFor(tag)
 		if !ok {
 			continue
 		}
-		if providerdir.Exists(providerDir, name) {
-			extraEnv, err := providerdir.LoadEnv(providerDir, name)
+		if dir.IsInstalled(name) {
+			extraEnv, err := dir.LoadEnv(name)
 			if err != nil {
 				return nil, fmt.Errorf("loading config for %q: %w", name, err)
 			}
-			binPath := providerdir.BinaryPath(providerDir, name)
-			if err := registry.Register(execprovider.New(tag, binPath, extraEnv)); err != nil {
+			binPath := dir.BinaryPath(name)
+			if err := registry.Register(&execprovider.Provider{TagName: tag, Binary: binPath, Env: extraEnv}); err != nil {
 				return nil, err
 			}
 			continue

@@ -39,7 +39,7 @@ const tagSecretManager = "gcp-sm"
 
 // version is this provider's own version (independent of inject core's),
 // set at build time via -ldflags -X from providers/manifest.json's
-// "version" field for the "gcp" entry (see internal/cmd/init.go and the CI
+// "version" field for the "gcp" entry (see cmd/inject/init.go and the CI
 // workflows). It's embedded purely for forensic/debugging purposes —
 // syringe.lock is what actually records which version was installed,
 // verified independently via a digest.

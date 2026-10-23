@@ -1,7 +1,9 @@
-package cmd
+package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,11 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/syringex/syringe/internal/envfile"
 	"github.com/syringex/syringe/internal/execprovider"
+	"github.com/syringex/syringe/internal/install"
 	"github.com/syringex/syringe/internal/lockfile"
-	"github.com/syringex/syringe/internal/parser"
-	"github.com/syringex/syringe/internal/providerdir"
-	"github.com/syringex/syringe/internal/providerdownload"
 )
 
 // moduleDir is the absolute path to this monorepo's source, baked into the
@@ -47,7 +48,7 @@ func newInitCmd(f *flags) *cobra.Command {
 
 // runInit inspects f.file for the tags it references, maps them to the
 // distinct provider identities that serve them (e.g. aws-sm and aws-ssm
-// both collapse to "aws" — see providerNames), and for each identity:
+// both collapse to "aws" — see Manifest.ProviderFor), and for each identity:
 // installs it (building from source in a local dev build, or downloading
 // and verifying its released binary otherwise — see moduleDir), records
 // its version and binary digest in syringe.lock, then runs its own `init`
@@ -55,7 +56,7 @@ func newInitCmd(f *flags) *cobra.Command {
 // with no known provider identity is left alone entirely — it's presumed a
 // literal, not a typo.
 func runInit(cmd *cobra.Command, f *flags, force bool) error {
-	entries, err := parser.ParseFile(f.file)
+	entries, err := envfile.ParseFile(f.file)
 	if err != nil {
 		return err
 	}
@@ -67,10 +68,10 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 	if err != nil {
 		return err
 	}
-	dir := providerdir.Dir(cwd)
+	dir := install.DirIn(cwd)
 	out := cmd.OutOrStdout()
 
-	lf, err := lockfile.Load(lockfile.FileName)
+	lf, err := lockfile.Load(lockfile.Name)
 	if err != nil {
 		return err
 	}
@@ -82,14 +83,14 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 	lockUpdated := false
 
 	for _, name := range requiredProviderNames(entries) {
-		binaryInstalled := providerdir.Exists(dir, name)
+		binaryInstalled := dir.IsInstalled(name)
 
 		// Respect an existing lock pin by default — the whole point of the
 		// lock file is that a checked-in syringe.lock keeps installing the
 		// same version even after providers/manifest.json moves on.
 		// --force re-resolves against the manifest's current version
 		// instead (the "upgrade" path).
-		version := providerVersions[name]
+		version := manifest.Providers[name].Version
 		if existing, ok := lf.Providers[name]; ok && existing.Version != "" && !force {
 			version = existing.Version
 		}
@@ -102,20 +103,18 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		case moduleDir != "":
 			// Local dev build: always build from source at the manifest's
 			// current version, ignoring any lock pin — see moduleDir's doc.
-			version = providerVersions[name]
-			pkg, ok := providerPackages[name]
+			p, ok := manifest.Providers[name]
 			if !ok {
 				unbuildable = append(unbuildable, name)
 				continue
 			}
-			if err := providerdir.EnsureDir(dir); err != nil {
-				return err
-			}
-			if err := providerdir.EnsureProviderDir(dir, name); err != nil {
+			version = p.Version
+			pkg := p.Package
+			if err := dir.Prepare(name); err != nil {
 				return err
 			}
 
-			binPath := providerdir.BinaryPath(dir, name)
+			binPath := dir.BinaryPath(name)
 			fmt.Fprintf(out, "%s: building from %s (version %s)\n", name, pkg, version)
 			build := exec.Command("go", "build", "-ldflags", "-X "+pkg+".version="+version, "-o", binPath, pkg)
 			build.Dir = moduleDir
@@ -129,16 +128,13 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		default:
 			// A real, distributed inject binary: download and verify the
 			// provider's released binary against its published checksums.
-			if err := providerdir.EnsureDir(dir); err != nil {
-				return err
-			}
-			if err := providerdir.EnsureProviderDir(dir, name); err != nil {
+			if err := dir.Prepare(name); err != nil {
 				return err
 			}
 
-			binPath := providerdir.BinaryPath(dir, name)
-			fmt.Fprintf(out, "%s: downloading version %s (%s)...\n", name, version, providerdownload.ReleaseTag(name, version))
-			d, err := providerdownload.Install(cmd.Context(), name, version, runtime.GOOS, runtime.GOARCH, binPath)
+			rel := install.Release{Provider: name, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH}
+			fmt.Fprintf(out, "%s: downloading version %s (%s)...\n", name, version, rel.Tag())
+			d, err := install.Download(cmd.Context(), rel, dir.BinaryPath(name))
 			if err != nil {
 				return fmt.Errorf("downloading provider %q: %w", name, err)
 			}
@@ -151,8 +147,8 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 			// (freshly built, already installed, or downloaded above), so
 			// syringe.lock stays an accurate reflection of what's actually
 			// on disk even if it was missing, stale, or hand-edited. The
-			// download path above already has its digest from Install.
-			d, err := lockfile.DigestFile(providerdir.BinaryPath(dir, name))
+			// download path above already has its digest from Download.
+			d, err := install.FileDigest(dir.BinaryPath(name))
 			if err != nil {
 				return fmt.Errorf("digesting provider %q: %w", name, err)
 			}
@@ -171,7 +167,7 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		if moduleDir == "" && !force {
 			if existing, ok := lf.Providers[name]; ok && existing.Version == version {
 				if p, ok := existing.Platforms[platform]; ok && p.Digest != "" && p.Digest != digest {
-					return fmt.Errorf("provider %q version %s: installed binary digest %s does not match %s's recorded digest %s for %s — refusing to continue (this could mean the release was replaced/tampered with after %s was committed, or the local binary was modified out of band); re-run with --force if this is expected", name, version, digest, lockfile.FileName, p.Digest, platform, lockfile.FileName)
+					return fmt.Errorf("provider %q version %s: installed binary digest %s does not match %s's recorded digest %s for %s — refusing to continue (this could mean the release was replaced/tampered with after %s was committed, or the local binary was modified out of band); re-run with --force if this is expected", name, version, digest, lockfile.Name, p.Digest, platform, lockfile.Name)
 				}
 			}
 		}
@@ -179,12 +175,11 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		lf.SetPlatform(name, version, platform, digest)
 		lockUpdated = true
 
-		if force || !providerdir.HasConfig(dir, name) {
+		if force || !dir.HasConfig(name) {
 			fmt.Fprintf(out, "%s: configuring...\n", name)
-			// The tag passed to New() here is never used: this call is
-			// only ever "init", which configures the shared provider
-			// identity, not a specific tag.
-			p := execprovider.New(name, providerdir.BinaryPath(dir, name), nil)
+			// "init" configures the shared provider identity, not a
+			// specific tag, so TagName here only labels Init's errors.
+			p := &execprovider.Provider{TagName: name, Binary: dir.BinaryPath(name)}
 			env, err := p.Init(cmd.Context())
 			if err != nil {
 				// A configure failure for one provider (e.g. non-interactive
@@ -195,20 +190,20 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 				configFailures = append(configFailures, name)
 				continue
 			}
-			if err := providerdir.SaveEnv(dir, name, env); err != nil {
+			if err := dir.SaveEnv(name, env); err != nil {
 				return err
 			}
 		}
 	}
 
 	if lockUpdated {
-		if err := lf.Save(lockfile.FileName); err != nil {
-			return fmt.Errorf("writing %s: %w", lockfile.FileName, err)
+		if err := lf.Save(lockfile.Name); err != nil {
+			return fmt.Errorf("writing %s: %w", lockfile.Name, err)
 		}
 	}
 
 	if installedAny {
-		if err := ensureGitignored(providerdir.Dir(".")); err != nil {
+		if err := ensureGitignored(string(install.DirIn("."))); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not update .gitignore: %v\n", err)
 		}
 	}
@@ -229,7 +224,7 @@ func ensureGitignored(dir string) error {
 	const gitignorePath = ".gitignore"
 
 	existing, err := os.ReadFile(gitignorePath)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	for line := range strings.SplitSeq(string(existing), "\n") {

@@ -1,4 +1,4 @@
-package resolver_test
+package resolve_test
 
 import (
 	"context"
@@ -6,34 +6,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/syringex/syringe/internal/parser"
-	"github.com/syringex/syringe/internal/resolver"
-	"github.com/syringex/syringe/pkg/provider"
-	"github.com/syringex/syringe/pkg/provider/providertest"
+	"github.com/syringex/syringe/internal/envfile"
+	"github.com/syringex/syringe/internal/provider"
+	"github.com/syringex/syringe/internal/provider/providertest"
+	"github.com/syringex/syringe/internal/resolve"
 )
 
 func TestResolveOrderAndLiterals(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			"prod/db/password": {Value: "hunter2"},
 		},
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	if err := registry.Register(fake); err != nil {
 		t.Fatal(err)
 	}
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "DB_PASSWORD", RawValue: "aws-sm:prod/db/password", Ref: &provider.Ref{Tag: "aws-sm", Path: "prod/db/password"}, Line: 1},
 		{Key: "PLAIN", RawValue: "just-a-value", Line: 2},
 		{Key: "TYPO_TAG", RawValue: "aws-ssm:not/registered", Ref: &provider.Ref{Tag: "aws-ssm", Path: "not/registered"}, Line: 3},
 	}
 
-	r := resolver.New(registry, resolver.Options{})
-	result, err := r.Resolve(context.Background(), entries)
+	result, err := resolve.Entries(context.Background(), registry, entries, resolve.Options{})
 	if err != nil {
-		t.Fatalf("Resolve returned error: %v", err)
+		t.Fatalf("Entries returned error: %v", err)
 	}
 	if len(result.Entries) != 3 {
 		t.Fatalf("got %d entries, want 3", len(result.Entries))
@@ -59,27 +58,26 @@ func TestResolveOrderAndLiterals(t *testing.T) {
 }
 
 func TestResolvePartialFailureNonFailFast(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			"good":  {Value: "ok"},
-			"bad":   {Err: provider.NewError(provider.ErrAccessDenied, "aws-sm", "bad", nil)},
+			"bad":   {Err: &provider.Error{Kind: provider.ErrAccessDenied, Tag: "aws-sm", Path: "bad"}},
 			"good2": {Value: "ok2"},
 		},
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	_ = registry.Register(fake)
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "A", RawValue: "aws-sm:good", Ref: &provider.Ref{Tag: "aws-sm", Path: "good"}, Line: 1},
 		{Key: "B", RawValue: "aws-sm:bad", Ref: &provider.Ref{Tag: "aws-sm", Path: "bad"}, Line: 2},
 		{Key: "C", RawValue: "aws-sm:good2", Ref: &provider.Ref{Tag: "aws-sm", Path: "good2"}, Line: 3},
 	}
 
-	r := resolver.New(registry, resolver.Options{FailFast: false})
-	result, err := r.Resolve(context.Background(), entries)
+	result, err := resolve.Entries(context.Background(), registry, entries, resolve.Options{FailFast: false})
 	if err != nil {
-		t.Fatalf("non-fail-fast Resolve should never return an error, got: %v", err)
+		t.Fatalf("non-fail-fast Entries should never return an error, got: %v", err)
 	}
 	if !result.HasErrors() {
 		t.Fatal("expected HasErrors to be true")
@@ -101,61 +99,69 @@ func TestResolvePartialFailureNonFailFast(t *testing.T) {
 }
 
 func TestResolveFailFastCancelsRemaining(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			// "bad" fails immediately; "slow1" would take 2s if allowed to
 			// run to completion. Distinct per-path delays (rather than one
-			// shared FakeProvider.Delay) make which one fails first
+			// shared Fake.Delay) make which one fails first
 			// deterministic instead of a race between two equally-delayed
 			// goroutines.
 			"slow1": {Value: "should-not-finish", Delay: 2 * time.Second},
-			"bad":   {Err: provider.NewError(provider.ErrAccessDenied, "aws-sm", "bad", nil)},
+			"bad":   {Err: &provider.Error{Kind: provider.ErrAccessDenied, Tag: "aws-sm", Path: "bad"}},
 		},
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	_ = registry.Register(fake)
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "SLOW1", RawValue: "aws-sm:slow1", Ref: &provider.Ref{Tag: "aws-sm", Path: "slow1"}, Line: 1},
 		{Key: "BAD", RawValue: "aws-sm:bad", Ref: &provider.Ref{Tag: "aws-sm", Path: "bad"}, Line: 2},
 	}
 
-	r := resolver.New(registry, resolver.Options{FailFast: true, Concurrency: 2})
 	start := time.Now()
-	_, err := r.Resolve(context.Background(), entries)
+	_, err := resolve.Entries(
+		context.Background(),
+		registry,
+		entries,
+		resolve.Options{FailFast: true, Concurrency: 2},
+	)
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("expected fail-fast Resolve to return the first error")
+		t.Fatal("expected fail-fast Entries to return the first error")
 	}
 	if !errors.Is(err, provider.ErrAccessDenied) {
 		t.Errorf("error = %v, want ErrAccessDenied", err)
 	}
 	if elapsed > time.Second {
-		t.Errorf("Resolve took %v, expected fail-fast to cancel \"slow1\" well before its 2s delay", elapsed)
+		t.Errorf("Entries took %v, expected fail-fast to cancel \"slow1\" well before its 2s delay", elapsed)
 	}
 }
 
 func TestResolvePerRefTimeout(t *testing.T) {
-	fake := &providertest.FakeProvider{
+	fake := &providertest.Fake{
 		TagName: "aws-sm",
-		Responses: map[string]providertest.FakeResponse{
+		Responses: map[string]providertest.Response{
 			"slow": {Value: "too-late"},
 		},
 		Delay: 200 * time.Millisecond,
 	}
-	registry := provider.NewRegistry()
+	registry := &provider.Registry{}
 	_ = registry.Register(fake)
 
-	entries := []parser.Entry{
+	entries := []envfile.Entry{
 		{Key: "SLOW", RawValue: "aws-sm:slow", Ref: &provider.Ref{Tag: "aws-sm", Path: "slow"}, Line: 1},
 	}
 
-	r := resolver.New(registry, resolver.Options{PerRefTimeout: 20 * time.Millisecond})
-	result, err := r.Resolve(context.Background(), entries)
+	result, err := resolve.Entries(
+		context.Background(),
+		registry,
+		entries,
+		resolve.Options{PerRefTimeout: 20 * time.Millisecond},
+	)
 	if err != nil {
-		t.Fatalf("non-fail-fast Resolve should never return an error, got: %v", err)
+		t.Fatalf("non-fail-fast Entries should never return an error, got: %v", err)
 	}
 	if !result.HasErrors() {
 		t.Fatal("expected the slow entry to time out and be recorded as a failure")

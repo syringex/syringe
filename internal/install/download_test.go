@@ -1,4 +1,4 @@
-package providerdownload
+package install
 
 import (
 	"archive/tar"
@@ -33,7 +33,7 @@ func TestFetchChecksums(t *testing.T) {
 	defer srv.Close()
 	withFakeGitHub(t, srv)
 
-	sums, err := FetchChecksums(context.Background(), "aws/v0.1.0")
+	sums, err := fetchChecksums(context.Background(), "aws/v0.1.0")
 	if err != nil {
 		t.Fatalf("FetchChecksums: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestFetchChecksumsNotFound(t *testing.T) {
 	defer srv.Close()
 	withFakeGitHub(t, srv)
 
-	if _, err := FetchChecksums(context.Background(), "aws/v9.9.9"); err == nil {
+	if _, err := fetchChecksums(context.Background(), "aws/v9.9.9"); err == nil {
 		t.Fatal("expected an error when the release doesn't exist (404)")
 	}
 }
@@ -63,7 +63,7 @@ func TestFindAsset(t *testing.T) {
 		"inject-provider-aws_v0.1.0_darwin_arm64.tar.gz": "def",
 		"inject-provider-aws_v0.1.0_windows_amd64.zip":   "ghi",
 	}
-	name, digest, err := FindAsset(sums, "aws", "darwin", "arm64")
+	name, digest, err := findAsset(sums, "aws", "darwin", "arm64")
 	if err != nil {
 		t.Fatalf("FindAsset: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestFindAsset(t *testing.T) {
 
 func TestFindAssetNotFound(t *testing.T) {
 	sums := map[string]string{"inject-provider-aws_v0.1.0_linux_amd64.tar.gz": "abc"}
-	if _, _, err := FindAsset(sums, "aws", "windows", "arm64"); err == nil {
+	if _, _, err := findAsset(sums, "aws", "windows", "arm64"); err == nil {
 		t.Fatal("expected an error when no matching asset exists for the platform")
 	}
 }
@@ -90,7 +90,7 @@ func TestDownloadAndVerifySuccess(t *testing.T) {
 	defer srv.Close()
 	withFakeGitHub(t, srv)
 
-	got, err := DownloadAndVerify(context.Background(), "aws/v0.1.0", "asset.tar.gz", digest)
+	got, err := downloadAndVerify(context.Background(), "aws/v0.1.0", "asset.tar.gz", digest)
 	if err != nil {
 		t.Fatalf("DownloadAndVerify: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestDownloadAndVerifyDigestMismatch(t *testing.T) {
 	withFakeGitHub(t, srv)
 
 	wrongDigest := strings.Repeat("0", 64)
-	if _, err := DownloadAndVerify(context.Background(), "aws/v0.1.0", "asset.tar.gz", wrongDigest); err == nil {
+	if _, err := downloadAndVerify(context.Background(), "aws/v0.1.0", "asset.tar.gz", wrongDigest); err == nil {
 		t.Fatal("expected a digest mismatch error")
 	}
 }
@@ -158,7 +158,7 @@ func TestExtractBinaryFromTarGz(t *testing.T) {
 		"inject-provider-aws": "fake binary contents",
 		"README.md":           "hi",
 	})
-	got, err := ExtractBinary("inject-provider-aws_v0.1.0_linux_amd64.tar.gz", archive, "inject-provider-aws")
+	got, err := extractBinary("inject-provider-aws_v0.1.0_linux_amd64.tar.gz", archive, "inject-provider-aws")
 	if err != nil {
 		t.Fatalf("ExtractBinary: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestExtractBinaryFromZip(t *testing.T) {
 	archive := makeZip(t, map[string]string{
 		"inject-provider-aws.exe": "fake windows binary",
 	})
-	got, err := ExtractBinary("inject-provider-aws_v0.1.0_windows_amd64.zip", archive, "inject-provider-aws.exe")
+	got, err := extractBinary("inject-provider-aws_v0.1.0_windows_amd64.zip", archive, "inject-provider-aws.exe")
 	if err != nil {
 		t.Fatalf("ExtractBinary: %v", err)
 	}
@@ -182,13 +182,13 @@ func TestExtractBinaryFromZip(t *testing.T) {
 
 func TestExtractBinaryMissingFromArchive(t *testing.T) {
 	archive := makeTarGz(t, map[string]string{"other-file": "x"})
-	if _, err := ExtractBinary("x.tar.gz", archive, "inject-provider-aws"); err == nil {
+	if _, err := extractBinary("x.tar.gz", archive, "inject-provider-aws"); err == nil {
 		t.Fatal("expected an error when the binary isn't in the archive")
 	}
 }
 
 func TestExtractBinaryUnknownFormat(t *testing.T) {
-	if _, err := ExtractBinary("x.rar", []byte("data"), "inject-provider-aws"); err == nil {
+	if _, err := extractBinary("x.rar", []byte("data"), "inject-provider-aws"); err == nil {
 		t.Fatal("expected an error for an unrecognized archive format")
 	}
 }
@@ -216,7 +216,7 @@ func fakeReleaseServer(tag, filename string, archive []byte, checksumsOverride s
 // TestInstallEndToEnd exercises the full flow — fetch checksums, download,
 // verify, extract, write to disk — against a fake GitHub Releases server;
 // no real network access or a real published release required.
-func TestInstallEndToEnd(t *testing.T) {
+func TestDownloadEndToEnd(t *testing.T) {
 	binaryContent := []byte("#!/bin/sh\necho fake-aws-provider\n")
 	archive := makeTarGz(t, map[string]string{"inject-provider-aws": string(binaryContent)})
 	filename := "inject-provider-aws_v0.1.0_linux_amd64.tar.gz"
@@ -226,9 +226,9 @@ func TestInstallEndToEnd(t *testing.T) {
 	withFakeGitHub(t, srv)
 
 	dest := filepath.Join(t.TempDir(), "inject-provider-aws")
-	digest, err := Install(context.Background(), "aws", "0.1.0", "linux", "amd64", dest)
+	digest, err := Download(context.Background(), Release{Provider: "aws", Version: "0.1.0", OS: "linux", Arch: "amd64"}, dest)
 	if err != nil {
-		t.Fatalf("Install: %v", err)
+		t.Fatalf("Download: %v", err)
 	}
 
 	wantSum := sha256.Sum256(binaryContent)
@@ -254,7 +254,7 @@ func TestInstallEndToEnd(t *testing.T) {
 	}
 }
 
-func TestInstallTamperedArchiveFails(t *testing.T) {
+func TestDownloadTamperedArchiveFails(t *testing.T) {
 	archive := makeTarGz(t, map[string]string{"inject-provider-aws": "original"})
 	filename := "inject-provider-aws_v0.1.0_linux_amd64.tar.gz"
 	// checksums.txt records a digest for content different from what's
@@ -266,15 +266,15 @@ func TestInstallTamperedArchiveFails(t *testing.T) {
 	withFakeGitHub(t, srv)
 
 	dest := filepath.Join(t.TempDir(), "inject-provider-aws")
-	if _, err := Install(context.Background(), "aws", "0.1.0", "linux", "amd64", dest); err == nil {
-		t.Fatal("expected Install to fail on a digest mismatch")
+	if _, err := Download(context.Background(), Release{Provider: "aws", Version: "0.1.0", OS: "linux", Arch: "amd64"}, dest); err == nil {
+		t.Fatal("expected Download to fail on a digest mismatch")
 	}
 	if _, err := os.Stat(dest); err == nil {
 		t.Fatal("expected no file to be written when verification fails")
 	}
 }
 
-func TestInstallNoReleaseYet(t *testing.T) {
+func TestDownloadNoReleaseYet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}))
@@ -282,7 +282,22 @@ func TestInstallNoReleaseYet(t *testing.T) {
 	withFakeGitHub(t, srv)
 
 	dest := filepath.Join(t.TempDir(), "inject-provider-aws")
-	if _, err := Install(context.Background(), "aws", "9.9.9", "linux", "amd64", dest); err == nil {
-		t.Fatal("expected Install to fail when no release exists yet")
+	if _, err := Download(context.Background(), Release{Provider: "aws", Version: "9.9.9", OS: "linux", Arch: "amd64"}, dest); err == nil {
+		t.Fatal("expected Download to fail when no release exists yet")
+	}
+}
+
+func TestFileDigest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "binary")
+	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := FileDigest(path)
+	if err != nil {
+		t.Fatalf("FileDigest: %v", err)
+	}
+	const wantDigest = "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9" // sha256("hello world")
+	if got != wantDigest {
+		t.Errorf("FileDigest = %q, want %q", got, wantDigest)
 	}
 }

@@ -20,7 +20,7 @@ type Provider interface {
 	Tag() string
 
 	// Resolve fetches the secret value at path. It must respect ctx
-	// cancellation/deadline. Errors should be classified via NewError so
+	// cancellation/deadline. Errors should be classified as an *Error so
 	// callers can distinguish not-found/access-denied/transient/invalid.
 	Resolve(ctx context.Context, path string) (Secret, error)
 

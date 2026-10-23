@@ -46,7 +46,7 @@ const (
 
 // version is this provider's own version (independent of inject core's),
 // set at build time via -ldflags -X from providers/manifest.json's
-// "version" field for the "aws" entry (see internal/cmd/init.go and the CI
+// "version" field for the "aws" entry (see cmd/inject/init.go and the CI
 // workflows). It's embedded purely for forensic/debugging purposes (e.g.
 // visible via `strings`) — syringe.lock is what actually records which
 // version was installed, verified independently via a digest.
@@ -259,8 +259,8 @@ func validateSecret(ctx context.Context, client secretsManagerClient, ref string
 // splitJSONKey splits ref into a secret/parameter ID and an optional JSON
 // key selector after the first "#". No selector returns key == "".
 func splitJSONKey(ref string) (id, key string) {
-	if i := strings.Index(ref, "#"); i >= 0 {
-		return ref[:i], ref[i+1:]
+	if before, after, ok := strings.Cut(ref, "#"); ok {
+		return before, after
 	}
 	return ref, ""
 }

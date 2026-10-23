@@ -31,7 +31,7 @@ A provider is a standalone executable that speaks the wire protocol in
 
 At this point the provider builds from source via `inject init` in any local
 monorepo checkout (dev builds always build from source — see `moduleDir` in
-`internal/cmd/init.go`) and is ready to be released (next section) so a real
+`cmd/inject/init.go`) and is ready to be released (next section) so a real
 distributed `inject` binary can download it too.
 
 ## Releasing a new version of an existing provider
@@ -62,7 +62,7 @@ is no manual tagging step and nothing to install locally:
 `inject init` on a real distributed binary resolves this exact tag: it
 fetches that release's `checksums.txt`, verifies the downloaded archive's
 digest against it, and only then installs the extracted binary — see
-`internal/providerdownload`.
+`internal/install`.
 
 A provider version only becomes installable by anyone else once this has
 actually run on `main`. Bumping `manifest.json` on a branch that hasn't

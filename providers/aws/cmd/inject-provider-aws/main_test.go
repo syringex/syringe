@@ -82,7 +82,7 @@ func TestFormatAWSError(t *testing.T) {
 
 func TestResolveSecretString(t *testing.T) {
 	client := &fakeSMClient{getSecretValueOut: &secretsmanager.GetSecretValueOutput{
-		SecretString: strPtr("hunter2"),
+		SecretString: new("hunter2"),
 	}}
 	res, errPayload := resolveSecret(context.Background(), client, "prod/db/password")
 	if errPayload != nil {
@@ -108,7 +108,7 @@ func TestResolveSecretBinaryIsBase64Encoded(t *testing.T) {
 
 func TestResolveSecretJSONKey(t *testing.T) {
 	client := &fakeSMClient{getSecretValueOut: &secretsmanager.GetSecretValueOutput{
-		SecretString: strPtr(`{"username":"admin","password":"hunter2","port":5432,"tls":true}`),
+		SecretString: new(`{"username":"admin","password":"hunter2","port":5432,"tls":true}`),
 	}}
 
 	res, errPayload := resolveSecret(context.Background(), client, "prod/db/credentials#password")
@@ -134,7 +134,7 @@ func TestResolveSecretJSONKey(t *testing.T) {
 
 func TestResolveSecretJSONKeyNotFound(t *testing.T) {
 	client := &fakeSMClient{getSecretValueOut: &secretsmanager.GetSecretValueOutput{
-		SecretString: strPtr(`{"username":"admin"}`),
+		SecretString: new(`{"username":"admin"}`),
 	}}
 	_, errPayload := resolveSecret(context.Background(), client, "prod/db/credentials#password")
 	if errPayload == nil {
@@ -150,7 +150,7 @@ func TestResolveSecretJSONKeyNotFound(t *testing.T) {
 // of surfacing a clear error.
 func TestResolveSecretJSONKeyNullIsNotFound(t *testing.T) {
 	client := &fakeSMClient{getSecretValueOut: &secretsmanager.GetSecretValueOutput{
-		SecretString: strPtr(`{"username":"admin","password":null}`),
+		SecretString: new(`{"username":"admin","password":null}`),
 	}}
 	_, errPayload := resolveSecret(context.Background(), client, "prod/db/credentials#password")
 	if errPayload == nil {
@@ -163,7 +163,7 @@ func TestResolveSecretJSONKeyNullIsNotFound(t *testing.T) {
 
 func TestResolveSecretJSONKeyOnNonJSONValue(t *testing.T) {
 	client := &fakeSMClient{getSecretValueOut: &secretsmanager.GetSecretValueOutput{
-		SecretString: strPtr("just-a-plain-string"),
+		SecretString: new("just-a-plain-string"),
 	}}
 	_, errPayload := resolveSecret(context.Background(), client, "prod/db/password#username")
 	if errPayload == nil {
@@ -268,7 +268,7 @@ func (f *fakeSSMClient) DescribeParameters(ctx context.Context, params *ssm.Desc
 
 func TestResolveParameterSuccess(t *testing.T) {
 	client := &fakeSSMClient{getParameterOut: &ssm.GetParameterOutput{
-		Parameter: &ssmtypes.Parameter{Value: strPtr("api-key-value")},
+		Parameter: &ssmtypes.Parameter{Value: new("api-key-value")},
 	}}
 	res, errPayload := resolveParameter(context.Background(), client, "/myapp/api-key")
 	if errPayload != nil {
@@ -281,7 +281,7 @@ func TestResolveParameterSuccess(t *testing.T) {
 
 func TestResolveParameterJSONKey(t *testing.T) {
 	client := &fakeSSMClient{getParameterOut: &ssm.GetParameterOutput{
-		Parameter: &ssmtypes.Parameter{Value: strPtr(`{"username":"admin","password":"hunter2"}`)},
+		Parameter: &ssmtypes.Parameter{Value: new(`{"username":"admin","password":"hunter2"}`)},
 	}}
 	res, errPayload := resolveParameter(context.Background(), client, "/myapp/db-credentials#username")
 	if errPayload != nil {
@@ -331,8 +331,6 @@ func TestValidateParameterSuccessAndFailure(t *testing.T) {
 		t.Errorf("Kind = %q, want %q", errPayload.Kind, providerproto.KindNotFound)
 	}
 }
-
-func strPtr(s string) *string { return &s }
 
 func TestChooseRegion(t *testing.T) {
 	cases := []struct {

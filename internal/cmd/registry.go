@@ -67,7 +67,7 @@ func buildRegistry(providerDir string, entries []envfile.Entry) (*provider.Regis
 				return nil, fmt.Errorf("loading config for %q: %w", name, err)
 			}
 			binPath := providerdir.BinaryPath(providerDir, name)
-			if err := registry.Register(execprovider.New(tag, binPath, extraEnv)); err != nil {
+			if err := registry.Register(&execprovider.Provider{TagName: tag, Binary: binPath, Env: extraEnv}); err != nil {
 				return nil, err
 			}
 			continue

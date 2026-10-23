@@ -181,10 +181,9 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 
 		if force || !providerdir.HasConfig(dir, name) {
 			fmt.Fprintf(out, "%s: configuring...\n", name)
-			// The tag passed to New() here is never used: this call is
-			// only ever "init", which configures the shared provider
-			// identity, not a specific tag.
-			p := execprovider.New(name, providerdir.BinaryPath(dir, name), nil)
+			// "init" configures the shared provider identity, not a
+			// specific tag, so TagName here only labels Init's errors.
+			p := &execprovider.Provider{TagName: name, Binary: providerdir.BinaryPath(dir, name)}
 			env, err := p.Init(cmd.Context())
 			if err != nil {
 				// A configure failure for one provider (e.g. non-interactive

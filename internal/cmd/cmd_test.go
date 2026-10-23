@@ -73,7 +73,7 @@ func goBuild(out, pkg string) error {
 // installFakeProvider makes the prebuilt fake provider binary available at
 // .syringe/providers/<name>/inject-provider-<name> relative to the test's
 // current working directory. name is a provider identity (e.g. "aws"), not
-// necessarily a reference tag — see providerNames.
+// necessarily a reference tag — see providers.Manifest.ProviderFor.
 func installFakeProvider(t *testing.T, name string) {
 	t.Helper()
 	destDir := filepath.Join(".syringe", "providers", name)
@@ -479,7 +479,7 @@ func TestInitDownloadsProviderWhenNoModuleDir(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
-	wantVersion := providerVersions["aws"]
+	wantVersion := manifest.Providers["aws"].Version
 	archiveFilename, archiveData, checksums, script := buildFakeReleaseArchive(t, "aws", wantVersion, runtime.GOOS, runtime.GOARCH)
 
 	srv := fakeReleaseServer("aws/v"+wantVersion, archiveFilename, archiveData, checksums)
@@ -542,7 +542,7 @@ func TestInitRespectsExistingLockPinOverManifestVersion(t *testing.T) {
 	// currently says for "aws" — it's never asserted against that value,
 	// only against the pin itself, so a future manifest version bump can't
 	// make this coincidentally match and silently stop testing anything.
-	if providerVersions["aws"] == "0.0.9" {
+	if manifest.Providers["aws"].Version == "0.0.9" {
 		t.Fatal("test fixture pin 0.0.9 collides with the manifest's current aws version — pick a different pin")
 	}
 	archiveFilename, archiveData, checksums, scriptContent := buildFakeReleaseArchive(t, "aws", "0.0.9", runtime.GOOS, runtime.GOARCH)
@@ -591,7 +591,7 @@ func TestInitForceIgnoresLockPinAndUsesManifestVersion(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
-	if providerVersions["aws"] == "0.0.9" {
+	if manifest.Providers["aws"].Version == "0.0.9" {
 		t.Fatal("test fixture pin 0.0.9 collides with the manifest's current aws version — pick a different pin")
 	}
 	var lf lockfile.File
@@ -602,7 +602,7 @@ func TestInitForceIgnoresLockPinAndUsesManifestVersion(t *testing.T) {
 
 	// Only the manifest's current version is actually served — if --force
 	// incorrectly still targeted the 0.0.9 pin, this would 404.
-	wantVersion := providerVersions["aws"]
+	wantVersion := manifest.Providers["aws"].Version
 	archiveFilename, archiveData, checksums, _ := buildFakeReleaseArchive(t, "aws", wantVersion, runtime.GOOS, runtime.GOARCH)
 	srv := fakeReleaseServer("aws/v"+wantVersion, archiveFilename, archiveData, checksums)
 	defer srv.Close()
@@ -632,7 +632,7 @@ func TestInitDigestMismatchAgainstLockFailsWithoutForce(t *testing.T) {
 
 	// Same version as what's about to be "downloaded", but a digest that
 	// cannot possibly match the real archive's extracted binary.
-	wantVersion := providerVersions["aws"]
+	wantVersion := manifest.Providers["aws"].Version
 	var lf lockfile.File
 	lf.SetPlatform("aws", wantVersion, runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
 	if err := lf.Save(lockfile.Name); err != nil {
@@ -670,7 +670,7 @@ func TestInitForceOverridesDigestMismatch(t *testing.T) {
 	moduleDir = ""
 	t.Cleanup(func() { moduleDir = origModuleDir })
 
-	wantVersion := providerVersions["aws"]
+	wantVersion := manifest.Providers["aws"].Version
 	var lf lockfile.File
 	lf.SetPlatform("aws", wantVersion, runtime.GOOS+"_"+runtime.GOARCH, "sha256:0000000000000000000000000000000000000000000000000000000000000")
 	if err := lf.Save(lockfile.Name); err != nil {

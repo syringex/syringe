@@ -34,7 +34,7 @@ func requiredTags(entries []envfile.Entry) []string {
 func requiredProviderNames(entries []envfile.Entry) []string {
 	seen := map[string]bool{}
 	for _, tag := range requiredTags(entries) {
-		if name, ok := providerNames[tag]; ok {
+		if name, ok := manifest.ProviderFor(tag); ok {
 			seen[name] = true
 		}
 	}
@@ -47,8 +47,8 @@ func requiredProviderNames(entries []envfile.Entry) []string {
 }
 
 // buildRegistry constructs a provider.Registry for entries' references,
-// backed by binaries installed under dir. A tag with no entry in
-// providerNames is left as a literal (most likely coincidental, e.g.
+// backed by binaries installed under dir. A tag no provider in manifest
+// serves is left as a literal (most likely coincidental, e.g.
 // "note:see-section-3"). A known tag whose provider identity has no
 // installed binary is a clear error pointing at `inject init`, rather than
 // a silent, probably-unintended literal fallback.
@@ -57,7 +57,7 @@ func buildRegistry(dir install.Dir, entries []envfile.Entry) (*provider.Registry
 	var missing []string
 
 	for _, tag := range requiredTags(entries) {
-		name, ok := providerNames[tag]
+		name, ok := manifest.ProviderFor(tag)
 		if !ok {
 			continue
 		}

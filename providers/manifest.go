@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 //go:embed manifest.json
@@ -43,4 +44,28 @@ func Load() (Manifest, error) {
 		return Manifest{}, fmt.Errorf("providers: parsing embedded manifest.json: %w", err)
 	}
 	return m, nil
+}
+
+// MustLoad is like Load but panics if the embedded manifest fails to parse.
+// The manifest is fixed at build time (and pinned by this package's tests),
+// so a failure means the binary was built from a broken manifest.json, not
+// something a caller can recover from at runtime.
+func MustLoad() Manifest {
+	m, err := Load()
+	if err != nil {
+		panic(err)
+	}
+	return m
+}
+
+// ProviderFor returns the identity of the provider that serves tag (as
+// written in an .env file), e.g. "aws" for both "aws-sm" and "aws-ssm".
+// ok is false for a tag no provider serves.
+func (m Manifest) ProviderFor(tag string) (name string, ok bool) {
+	for name, p := range m.Providers {
+		if slices.Contains(p.Tags, tag) {
+			return name, true
+		}
+	}
+	return "", false
 }

@@ -46,7 +46,7 @@ func newInitCmd(f *flags) *cobra.Command {
 
 // runInit inspects f.file for the tags it references, maps them to the
 // distinct provider identities that serve them (e.g. aws-sm and aws-ssm
-// both collapse to "aws" — see providerNames), and for each identity:
+// both collapse to "aws" — see Manifest.ProviderFor), and for each identity:
 // installs it (building from source in a local dev build, or downloading
 // and verifying its released binary otherwise — see moduleDir), records
 // its version and binary digest in syringe.lock, then runs its own `init`
@@ -88,7 +88,7 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		// same version even after providers/manifest.json moves on.
 		// --force re-resolves against the manifest's current version
 		// instead (the "upgrade" path).
-		version := providerVersions[name]
+		version := manifest.Providers[name].Version
 		if existing, ok := lf.Providers[name]; ok && existing.Version != "" && !force {
 			version = existing.Version
 		}
@@ -101,12 +101,13 @@ func runInit(cmd *cobra.Command, f *flags, force bool) error {
 		case moduleDir != "":
 			// Local dev build: always build from source at the manifest's
 			// current version, ignoring any lock pin — see moduleDir's doc.
-			version = providerVersions[name]
-			pkg, ok := providerPackages[name]
+			p, ok := manifest.Providers[name]
 			if !ok {
 				unbuildable = append(unbuildable, name)
 				continue
 			}
+			version = p.Version
+			pkg := p.Package
 			if err := dir.Prepare(name); err != nil {
 				return err
 			}

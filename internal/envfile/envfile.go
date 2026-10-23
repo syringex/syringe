@@ -1,7 +1,7 @@
 // Package envfile parses .env-style files whose values may be plain literals
 // or "tag:path" references to a secret in a remote provider. It has no
 // knowledge of which tags are actually registered — that decision belongs
-// to the resolver, so a parsed Ref may turn out to be a typo'd tag that
+// to package resolve, so a parsed Ref may turn out to be a typo'd tag that
 // falls back to being treated as a literal value.
 package envfile
 

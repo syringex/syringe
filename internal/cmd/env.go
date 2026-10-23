@@ -3,12 +3,12 @@ package cmd
 import (
 	"os"
 
-	"github.com/syringex/syringe/internal/resolver"
+	"github.com/syringex/syringe/internal/resolve"
 )
 
 // envFromResult merges result's successfully resolved entries over the
 // current process's environment, resolved keys winning on collision.
-func envFromResult(result *resolver.Result) []string {
+func envFromResult(result *resolve.Result) []string {
 	env := os.Environ()
 	for _, e := range result.OK() {
 		env = append(env, e.Key+"="+e.Value)

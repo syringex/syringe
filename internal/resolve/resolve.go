@@ -1,7 +1,7 @@
-// Package resolver fans a parsed .env file out to registered providers
+// Package resolve fans a parsed .env file out to registered providers
 // concurrently, aggregating per-key results (including partial failures)
 // while preserving the file's original key order.
-package resolver
+package resolve
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 
 const defaultConcurrency = 8
 
-// Options configures a Resolver.
+// Options configures Entries.
 type Options struct {
 	// Concurrency bounds how many secrets are resolved at once. <= 0 uses
 	// defaultConcurrency.
@@ -24,44 +24,34 @@ type Options struct {
 	// individual Resolve call.
 	PerRefTimeout time.Duration
 	// FailFast, when true, cancels all in-flight and pending resolutions as
-	// soon as one fails, and Resolve returns that error. When false, every
+	// soon as one fails, and Entries returns that error. When false, every
 	// entry is attempted independently and failures are reported per-key in
 	// Result.Failed() without aborting the batch.
 	FailFast bool
 }
 
-// Resolver resolves parsed entries against a provider.Registry.
-type Resolver struct {
-	registry *provider.Registry
-	opts     Options
-}
-
-// New builds a Resolver backed by registry.
-func New(registry *provider.Registry, opts Options) *Resolver {
-	return &Resolver{registry: registry, opts: opts}
-}
-
-// Resolve resolves every entry, in parallel bounded by opts.Concurrency.
+// Entries resolves every entry against registry, in parallel bounded by
+// opts.Concurrency.
 // The returned Result's Entries slice matches entries' order regardless of
 // completion order. When opts.FailFast is true, the first error also
 // short-circuits remaining work and is returned as the second value;
-// otherwise Resolve's error return is always nil and failures are found via
+// otherwise the error return is always nil and failures are found via
 // Result.Failed()/HasErrors().
-func (r *Resolver) Resolve(ctx context.Context, entries []envfile.Entry) (*Result, error) {
-	results := make([]ResolvedEntry, len(entries))
+func Entries(ctx context.Context, registry *provider.Registry, entries []envfile.Entry, opts Options) (*Result, error) {
+	results := make([]Entry, len(entries))
 
-	concurrency := r.opts.Concurrency
+	concurrency := opts.Concurrency
 	if concurrency <= 0 {
 		concurrency = defaultConcurrency
 	}
 
-	if r.opts.FailFast {
+	if opts.FailFast {
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(concurrency)
 		for i, e := range entries {
 			i, e := i, e
 			g.Go(func() error {
-				re, err := r.resolveOne(gctx, e)
+				re, err := resolveOne(gctx, registry, e, opts.PerRefTimeout)
 				results[i] = re
 				return err
 			})
@@ -77,7 +67,7 @@ func (r *Resolver) Resolve(ctx context.Context, entries []envfile.Entry) (*Resul
 	for i, e := range entries {
 		i, e := i, e
 		g.Go(func() error {
-			re, _ := r.resolveOne(ctx, e)
+			re, _ := resolveOne(ctx, registry, e, opts.PerRefTimeout)
 			results[i] = re
 			return nil // never fail the group; failures are recorded per-entry
 		})
@@ -89,26 +79,31 @@ func (r *Resolver) Resolve(ctx context.Context, entries []envfile.Entry) (*Resul
 // resolveOne resolves a single entry. A nil Ref, or a Ref whose tag isn't
 // registered, is treated as a literal value (backward-compatible fallback
 // for typo'd or unrecognized "tag:"-shaped values).
-func (r *Resolver) resolveOne(ctx context.Context, e envfile.Entry) (ResolvedEntry, error) {
+func resolveOne(
+	ctx context.Context,
+	registry *provider.Registry,
+	e envfile.Entry,
+	timeout time.Duration,
+) (Entry, error) {
 	if e.Ref == nil {
-		return ResolvedEntry{Key: e.Key, Value: e.RawValue, Line: e.Line}, nil
+		return Entry{Key: e.Key, Value: e.RawValue, Line: e.Line}, nil
 	}
 
-	p, ok := r.registry.Get(e.Ref.Tag)
+	p, ok := registry.Get(e.Ref.Tag)
 	if !ok {
-		return ResolvedEntry{Key: e.Key, Value: e.RawValue, Line: e.Line}, nil
+		return Entry{Key: e.Key, Value: e.RawValue, Line: e.Line}, nil
 	}
 
 	resolveCtx := ctx
-	if r.opts.PerRefTimeout > 0 {
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		resolveCtx, cancel = context.WithTimeout(ctx, r.opts.PerRefTimeout)
+		resolveCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
 	secret, err := p.Resolve(resolveCtx, e.Ref.Path)
 	if err != nil {
-		return ResolvedEntry{Key: e.Key, Err: err, Line: e.Line}, err
+		return Entry{Key: e.Key, Err: err, Line: e.Line}, err
 	}
-	return ResolvedEntry{Key: e.Key, Value: secret.Reveal(), Line: e.Line}, nil
+	return Entry{Key: e.Key, Value: secret.Reveal(), Line: e.Line}, nil
 }
